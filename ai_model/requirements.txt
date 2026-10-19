@@ -1,0 +1,4 @@
+# Thư viện cho huấn luyện & Lượng tử hóa mô hình TinyML
+tensorflow>=2.15.0
+numpy>=1.23.5
+pillow>=10.0.0

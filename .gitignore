@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+CNR-EXT-Patches-150x150/
+CNR-EXT-Patches-150x150.zip
+ai_model/raw_data/
+ai_model/dataset/
+ai_model/output/
+config/parking.json
+test_image/

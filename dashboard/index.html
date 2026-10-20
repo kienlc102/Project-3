@@ -3,294 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TinyML Smart Parking System | ESP32-CAM & Sensor Fusion</title>
-  <meta name="description" content="Hệ thống giám sát bãi đỗ xe thông minh ứng dụng TinyML trên ESP32-CAM và cơ chế Sensor Fusion Wake-on-Sensor tiết kiệm điện.">
+  <title>Wide-angle Parking | Camera ROI & ESP32</title>
+  <meta name="description" content="Camera góc rộng, vùng ô đỗ cố định và suy luận CNN INT8 trên ESP32.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <!-- MQTT.js CDN for Browser WebSocket MQTT -->
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- TOP NAVIGATION BAR -->
     <header class="top-nav">
-      <div class="nav-brand">
-        <div class="logo-badge">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.5 2.8C2.1 10.7 2 11.3 2 12v4c0 .6.4 1 1 1h2"/>
-            <circle cx="7" cy="17" r="2"/>
-            <path d="M9 17h6"/>
-            <circle cx="17" cy="17" r="2"/>
-          </svg>
-        </div>
-        <div>
-          <h1>TinyML Parking Edge AI</h1>
-          <p class="subtitle">ESP32-CAM &bull; Sensor Fusion &bull; Ultra-Lightweight CNN (INT8)</p>
-        </div>
-      </div>
-
-      <div class="nav-status-group">
-        <!-- MQTT Connection Badge -->
-        <div class="status-pill" id="mqtt-status-pill">
-          <span class="status-dot disconnected" id="mqtt-dot"></span>
-          <span id="mqtt-status-text">Mô phỏng Sa bàn</span>
-        </div>
-
-        <!-- Mode Toggle -->
-        <div class="mode-switch">
-          <button class="btn-toggle active" id="btn-mode-sim">Sa bàn Demo</button>
-          <button class="btn-toggle" id="btn-mode-live">Live MQTT</button>
-        </div>
-      </div>
+      <div class="nav-brand"><div class="logo-badge">P</div><div><h1>Wide-angle Parking</h1><p class="subtitle">Camera cố định · ROI từng ô đỗ · ESP32 INT8</p></div></div>
+      <a class="btn btn-secondary" href="/docs" target="_blank" rel="noopener">API Docs ↗</a>
     </header>
-
-    <!-- MAIN CONTENT GRID -->
-    <main class="dashboard-grid">
-
-      <!-- LEFT COLUMN: 4-PHASE DEMO CONTROLLER & HARDWARE TELEMETRY -->
-      <section class="card demo-controller-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="icon-chip">🎮</span>
-            <h2>Kịch bản Demo 4 Pha (Proof of Concept)</h2>
-          </div>
-          <span class="badge badge-accent">Interactive Diorama</span>
-        </div>
-
-        <p class="card-desc">
-          Mô phỏng trực tiếp 4 kịch bản thực tế trên sa bàn theo đúng thiết kế logic Wake-on-Sensor và bộ phân loại nhị phân CNN.
-        </p>
-
-        <div class="phase-buttons-grid">
-          <!-- Pha 1 -->
-          <button class="phase-btn active" id="btn-phase-1" data-phase="1">
-            <div class="phase-num">01</div>
-            <div class="phase-info">
-              <h3>Baseline: Ô trống</h3>
-              <p>Vi điều khiển ngủ, cảm biến báo xa, ô đỗ màu XANH</p>
-            </div>
-            <span class="phase-tag green">Standby</span>
-          </button>
-
-          <!-- Pha 2 -->
-          <button class="phase-btn" id="btn-phase-2" data-phase="2">
-            <div class="phase-num">02</div>
-            <div class="phase-info">
-              <h3>Nhiễu người quét qua</h3>
-              <p>Mô phỏng: cảm biến kích hoạt &rarr; CNN trả nhãn 0 "Không có xe" (Vẫn XANH)</p>
-            </div>
-            <span class="phase-tag amber">AI Filtered</span>
-          </button>
-
-          <!-- Pha 3 -->
-          <button class="phase-btn" id="btn-phase-3" data-phase="3">
-            <div class="phase-num">03</div>
-            <div class="phase-info">
-              <h3>Đỗ xe ô tô vào</h3>
-              <p>Cảm biến kích hoạt &rarr; CNN nhận diện "Xe" (&gt;0.75) &rarr; Chuyển màu ĐỎ</p>
-            </div>
-            <span class="phase-tag red">Occupied</span>
-          </button>
-
-          <!-- Pha 4 -->
-          <button class="phase-btn" id="btn-phase-4" data-phase="4">
-            <div class="phase-num">04</div>
-            <div class="phase-info">
-              <h3>Xe rời đi</h3>
-              <p>Cảm biến báo trống &rarr; Chuyển về XANH mà KHÔNG BẬT AI (Tiết kiệm điện)</p>
-            </div>
-            <span class="phase-tag cyan">Zero-AI Wake</span>
-          </button>
-        </div>
-
-        <div class="auto-play-bar">
-          <button class="btn btn-primary" id="btn-auto-demo">
-            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            Tự động chạy chu trình thuyết trình
-          </button>
-          <button class="btn btn-secondary" id="btn-reset-demo">Đặt lại</button>
-        </div>
-
-        <!-- SENSOR & POWER METRICS -->
-        <div class="telemetry-subgrid">
-          <div class="metric-box">
-            <span class="metric-label">Cảm biến Khoảng cách</span>
-            <div class="metric-val" id="telemetry-distance">48.2 <span class="unit">cm</span></div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill" id="distance-bar" style="width: 85%;"></div>
-            </div>
-            <span class="metric-hint" id="distance-hint">Vùng an toàn (&gt; 15cm)</span>
-          </div>
-
-          <div class="metric-box">
-            <span class="metric-label">Ước tính Dòng điện tiêu thụ</span>
-            <div class="metric-val" id="telemetry-current">14.5 <span class="unit">mA</span></div>
-            <div class="power-status-tag" id="power-tag">💤 Chế độ Chờ / Ngủ</div>
-            <span class="metric-hint">Tiết kiệm 88% năng lượng pin</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- CENTER COLUMN: PARKING SPOTS VISUALIZER -->
-      <section class="card parking-visualizer-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="icon-chip">🅿️</span>
-            <h2>Mặt bằng Ô đỗ xe Sa bàn (Diorama Bay)</h2>
-          </div>
-          <div class="legend-group">
-            <span class="legend-item"><span class="dot vacant"></span> Trống (Vacant)</span>
-            <span class="legend-item"><span class="dot occupied"></span> Có xe (Occupied)</span>
-            <span class="legend-item"><span class="dot evaluating"></span> AI Quét</span>
-          </div>
-        </div>
-
-        <div class="parking-bay-grid">
-          <!-- SPOT 01 (ACTIVE DEMO SPOT) -->
-          <div class="parking-slot vacant" id="spot-1">
-            <div class="slot-roof-sensor">
-              <div class="sensor-eye" id="sensor-eye-1"></div>
-              <div class="camera-lens" id="camera-lens-1">
-                <div class="lens-iris"></div>
-              </div>
-            </div>
-
-            <div class="slot-center-content">
-              <div class="slot-badge">SPOT 01 (ESP32-CAM)</div>
-              
-              <!-- Dynamic Car or Person Icon -->
-              <div class="object-silhouette" id="object-visual-1">
-                <div class="empty-placeholder">Ô TRỐNG</div>
-              </div>
-
-              <div class="slot-state-text" id="slot-state-text-1">TRỐNG (VACANT)</div>
-            </div>
-
-            <div class="slot-footer-data">
-              <div class="data-pair">
-                <span>Khoảng cách:</span>
-                <strong id="spot-dist-1">48.2 cm</strong>
-              </div>
-              <div class="data-pair">
-                <span>Xác suất Xe:</span>
-                <strong id="spot-prob-1">0.00</strong>
-              </div>
-            </div>
-          </div>
-
-          <!-- SPOT 02 (SIMULATED SECONDARY SPOT) -->
-          <div class="parking-slot vacant" id="spot-2">
-            <div class="slot-roof-sensor">
-              <div class="sensor-eye"></div>
-              <div class="camera-lens"><div class="lens-iris"></div></div>
-            </div>
-            <div class="slot-center-content">
-              <div class="slot-badge">SPOT 02 (Dự phòng)</div>
-              <div class="object-silhouette">
-                <div class="empty-placeholder">Ô TRỐNG</div>
-              </div>
-              <div class="slot-state-text">TRỐNG (VACANT)</div>
-            </div>
-            <div class="slot-footer-data">
-              <div class="data-pair"><span>Khoảng cách:</span><strong>52.0 cm</strong></div>
-              <div class="data-pair"><span>Xác suất Xe:</span><strong>0.00</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- CAMERA 64x64 SCANNER VIEW & AI CONFIDENCE GAUGE -->
-        <div class="ai-inspector-panel">
-          <div class="camera-view-box">
-            <div class="inspector-header">
-              <span>ESP32-CAM FRAME (64x64 Grayscale)</span>
-              <span class="live-tag" id="cam-status-tag">STANDBY</span>
-            </div>
-            <div class="canvas-container">
-              <canvas id="cameraCanvas" width="64" height="64"></canvas>
-              <div class="scanline-overlay"></div>
-              <div class="bounding-box" id="ai-bounding-box"></div>
-            </div>
-          </div>
-
-          <div class="ai-gauge-box">
-            <div class="inspector-header">
-              <span>ĐỘ TIN CẬY MÔ HÌNH CNN (TFLite Micro)</span>
-              <span class="threshold-notice">&gt; 0.75 = Ô TÔ</span>
-            </div>
-
-            <div class="prob-display">
-              <div class="prob-number" id="ai-prob-val">0.05</div>
-              <div class="classification-badge badge-human" id="ai-class-badge">KHÔNG CÓ XE (0)</div>
-            </div>
-
-            <!-- Gauge bar with 0.75 threshold mark -->
-            <div class="gauge-bar-wrapper">
-              <div class="gauge-track">
-                <div class="gauge-fill" id="ai-gauge-fill" style="width: 5%;"></div>
-                <!-- Threshold Marker line at 75% -->
-                <div class="threshold-marker" style="left: 75%;">
-                  <span class="marker-text">Ngưỡng 0.75</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="ai-details-meta">
-              <div class="meta-item">
-                <span>Model Size:</span>
-                <strong>18.4 KB (INT8)</strong>
-              </div>
-              <div class="meta-item">
-                <span>Inference Latency:</span>
-                <strong id="ai-latency-val">42 ms</strong>
-              </div>
-              <div class="meta-item">
-                <span>Kiến trúc:</span>
-                <strong>Depthwise Separable CNN</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- RIGHT COLUMN: REALTIME EVENT LOGS & MQTT CONFIG -->
-      <section class="card logs-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="icon-chip">📜</span>
-            <h2>Nhật ký Sự kiện (Real-time Event Logs)</h2>
-          </div>
-          <button class="btn btn-xs" id="btn-clear-logs">Xóa log</button>
-        </div>
-
-        <div class="log-stream-container" id="log-container">
-          <!-- Log entries inserted dynamically -->
-        </div>
-
-        <!-- LIVE MQTT CONFIGURATION COLLAPSIBLE -->
-        <div class="mqtt-config-box" id="mqtt-settings-panel">
-          <div class="config-header" id="toggle-mqtt-config">
-            <span>⚙️ Cấu hình MQTT Broker Thật</span>
-            <span class="arrow-icon">▼</span>
-          </div>
-          <div class="config-body" id="mqtt-config-body">
-            <div class="form-group">
-              <label>WebSocket Broker URL:</label>
-              <input type="text" id="cfg-mqtt-host" value="wss://broker.emqx.io:8084/mqtt" placeholder="wss://broker.emqx.io:8084/mqtt">
-            </div>
-            <div class="form-group">
-              <label>Topic Subscribe:</label>
-              <input type="text" id="cfg-mqtt-topic" value="parking/+/telemetry" placeholder="parking/+/telemetry">
-            </div>
-            <button class="btn btn-primary btn-full" id="btn-connect-mqtt">Kết nối MQTT Broker</button>
-          </div>
-        </div>
-      </section>
-
+    <main class="card image-test-card" id="image-test-panel" aria-labelledby="image-test-title">
+      <div class="card-header"><div class="card-title"><span class="icon-chip">📷</span><h2 id="image-test-title">Kiểm tra trạng thái ô đỗ</h2></div><span class="backend-status" id="backend-status" role="status">Đang kết nối…</span></div>
+      <p class="card-desc">Chọn ảnh một ô đỗ hoặc ảnh toàn cảnh từ camera đã cấu hình ROI. ESP32 xử lý từng ảnh xám 64×64; backend tham chiếu dùng để kiểm tra trên máy tính.</p>
+      <div class="image-test-grid">
+        <form id="image-test-form" class="image-upload-form">
+          <label class="image-dropzone" id="image-dropzone" for="parking-image"><span class="upload-symbol">↑</span><strong>Chọn ảnh hoặc kéo thả vào đây</strong><span>JPG, PNG, WebP, BMP · tối đa 10 MB</span><input id="parking-image" type="file" accept="image/jpeg,image/png,image/webp,image/bmp" aria-label="Chọn ảnh ô đỗ hoặc toàn cảnh camera"></label>
+          <p class="upload-filename" id="upload-filename">Chưa chọn ảnh</p>
+          <div class="form-group"><label for="prediction-scope">Vùng xử lý</label><select id="prediction-scope"><option value="slot">Một ô đỗ (ảnh đã crop)</option><option value="frame">Toàn cảnh — các ROI đã cấu hình</option></select></div>
+          <div class="form-group"><label for="prediction-target">Thiết bị suy luận</label><select id="prediction-target" disabled><option value="esp32">ESP32 · INT8</option><option value="backend">Backend · tham chiếu</option></select></div>
+          <div class="form-group"><label for="prediction-model">Model kiểm tra</label><select id="prediction-model" disabled><option value="int8">INT8</option><option value="float">Float32</option></select></div>
+          <p class="model-note" id="prediction-config">Đang lấy cấu hình model…</p>
+          <button class="btn btn-primary" id="predict-image-button" type="submit" disabled>Kiểm tra ảnh</button>
+          <button class="btn btn-secondary" id="retry-backend" type="button" hidden>Kết nối lại</button>
+          <p class="upload-message" id="upload-message" role="status" aria-live="polite"></p>
+        </form>
+        <div class="image-preview-panel"><div class="image-original-box"><img id="upload-preview" alt="Ảnh đã chọn" hidden><span id="upload-placeholder">Ảnh của bạn sẽ hiển thị tại đây</span></div><div class="input-preview-row" id="input-preview-row" hidden><img id="model-input-preview" alt="Ảnh xám 64×64 đưa vào model"><span>Ảnh model nhận<br><strong>64 × 64 · grayscale</strong></span></div></div>
+        <div class="prediction-result" id="prediction-result" aria-live="polite" aria-atomic="true"><span class="result-eyebrow">KẾT QUẢ DỰ ĐOÁN</span><h3 id="prediction-label">Chưa có kết quả</h3><p id="prediction-description">Chọn ảnh và bấm “Kiểm tra ảnh” để bắt đầu.</p><div class="prediction-score-track"><div id="prediction-score-fill"></div></div><dl class="prediction-details" id="prediction-details" hidden><div><dt>Điểm có xe</dt><dd id="prediction-score">—</dd></div><div><dt>Ngưỡng quyết định</dt><dd id="prediction-threshold">—</dd></div><div><dt>Model</dt><dd id="prediction-used-model">—</dd></div><div><dt>Suy luận tại</dt><dd id="prediction-used-target">—</dd></div><div><dt>Thời gian suy luận</dt><dd id="prediction-time">—</dd></div></dl><p class="model-note">Điểm số không phải tỷ lệ dự đoán đúng. Trạng thái “Chưa xác định” biểu thị chưa có kết quả hợp lệ từ thiết bị.</p></div>
+      </div>
+      <div class="roi-table-wrapper" id="roi-results" hidden><h3>Kết quả từng ô đỗ</h3><table class="roi-table"><thead><tr><th>Ô đỗ</th><th>Ảnh 64×64</th><th>Kết quả</th><th>Điểm có xe</th><th>Thời gian</th></tr></thead><tbody id="roi-results-body"></tbody></table></div>
     </main>
   </div>
-
-  <script src="app.js"></script>
+  <script src="image-test.js"></script>
 </body>
 </html>

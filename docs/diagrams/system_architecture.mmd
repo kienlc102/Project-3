@@ -1,0 +1,10 @@
+flowchart LR
+    Camera[Camera góc rộng cố định] -->|HTTP snapshot hoặc ảnh upload| Gateway[FastAPI Gateway]
+    Config[Cấu hình ROI theo camera] --> Gateway
+    Gateway --> ROI[Crop từng ô và resize grayscale 64x64]
+    ROI -->|HTTP: 4096 byte uint8 mỗi ô| ESP32[ESP32 thường - CNN INT8]
+    ESP32 -->|Nhãn 1/0 và điểm số| Gateway
+    Gateway --> Web[Dashboard trạng thái từng ô]
+    Train[Train và đánh giá trên PC/GPU] --> Export[Model TFLite INT8 và header C]
+    Export --> ESP32
+    Export -. kiểm tra tham chiếu .-> Reference[Model float/INT8 trên backend]

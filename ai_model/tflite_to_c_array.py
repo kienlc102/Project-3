@@ -5,6 +5,7 @@ Convert TFLite model binary (.tflite) to C/C++ array (.h / .cc)
 
 import sys
 import os
+import hashlib
 
 
 def convert_tflite_to_c_array(tflite_path, output_header_path, array_name="g_parking_model_data"):
@@ -35,6 +36,7 @@ def convert_tflite_to_c_array(tflite_path, output_header_path, array_name="g_par
     header_content.append("#include <stdint.h>\n")
     header_content.append(f"// Độ dài mảng dữ liệu mô hình")
     header_content.append(f"const unsigned int {array_name}_len = {size_bytes};\n")
+    header_content.append(f'const char g_parking_model_sha256[] = "{hashlib.sha256(bytes_data).hexdigest()}";\n')
     header_content.append(f"// Căn lề 16-byte cho vi điều khiển 32-bit ESP32")
     header_content.append(f"alignas(16) const unsigned char {array_name}[] = {{")
     
@@ -54,7 +56,7 @@ def convert_tflite_to_c_array(tflite_path, output_header_path, array_name="g_par
         f.write("\n".join(header_content))
         
     print(f"[SUCCESS] Đã ghi ra file C array: {output_header_path}")
-    print(f" -> Kích thước mảng: {size_kb:.2f} KB (Đạt chuẩn < 25KB cho ESP32-CAM)")
+    print(f" -> Kích thước mảng: {size_kb:.2f} KB. Cần kiểm tra RAM và độ trễ trên ESP32.")
     return size_bytes
 
 

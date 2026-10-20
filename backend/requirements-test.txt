@@ -1,0 +1,2 @@
+-r requirements-reference.txt
+httpx>=0.28,<1

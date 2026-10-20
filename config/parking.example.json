@@ -1,0 +1,10 @@
+{
+  "camera_id": "camera_01",
+  "reference_width": 1920,
+  "reference_height": 1080,
+  "snapshot_url": null,
+  "slots": [
+    {"id": "slot_01", "x": 240, "y": 300, "width": 300, "height": 300},
+    {"id": "slot_02", "x": 650, "y": 300, "width": 300, "height": 300}
+  ]
+}

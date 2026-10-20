@@ -3,7 +3,7 @@ Ultra-Lightweight CNN Architecture for Edge Parking Spot Monitoring (TinyML)
 Input: 64x64x1 (Grayscale image)
 Architecture: Depthwise Separable Convolutions + Global Average Pooling
 Output: 1 Neuron with Sigmoid activation (1: Occupied / Car present, 0: Vacant / No car)
-Target footprint: < 25KB quantized INT8 for ESP32-CAM (TFLite Micro)
+Target footprint: < 25KB quantized INT8 for ESP32 (TFLite Micro)
 """
 
 import tensorflow as tf
@@ -12,7 +12,7 @@ from tensorflow.keras import layers, models
 
 def build_ultralight_parking_cnn(input_shape=(64, 64, 1)):
     """
-    Xây dựng kiến trúc CNN siêu nhẹ tối ưu hóa cho vi điều khiển ESP32-CAM.
+    Xây dựng kiến trúc CNN siêu nhẹ tối ưu hóa cho vi điều khiển ESP32.
     
     Đặc điểm thiết kế:
     - Input: 64x64x1 (ảnh xám, tiết kiệm 66% RAM so với RGB).
@@ -21,7 +21,7 @@ def build_ultralight_parking_cnn(input_shape=(64, 64, 1)):
     - 3 khối Depthwise Separable Convolution giúp giảm ~8-9 lần số lượng phép tính (MACs)
       so với Standard Convolution thông thường.
     - GlobalAveragePooling2D thay thế hoàn toàn Flatten + Dense nhiều nơ-ron,
-      triệt tiêu nguy cơ quá khớp (overfitting) và giảm 90% số lượng trọng số kết nối.
+      giảm số tham số và hỗ trợ hạn chế quá khớp (overfitting) và giảm 90% số lượng trọng số kết nối.
     - Dropout 0.25 để tăng cường tính ổn định chống nhiễu ánh sáng.
     - Output: 1 nơ-ron Sigmoid (Có xe = 1, Không có xe = 0).
     """

@@ -1,0 +1,24 @@
+sequenceDiagram
+    actor Operator as Người vận hành
+    participant Gateway as Web và FastAPI Gateway
+    participant Camera as Camera góc rộng
+    participant ESP32 as ESP32 chạy CNN INT8
+    Operator->>Gateway: Khởi động với cấu hình ROI và địa chỉ ESP32
+    alt Upload ảnh toàn cảnh để test
+        Operator->>Gateway: Upload frame và yêu cầu kiểm tra các ô
+    else Camera có HTTP snapshot
+        Operator->>Gateway: Yêu cầu kiểm tra camera
+        Gateway->>Camera: GET snapshot
+        Camera-->>Gateway: Ảnh toàn cảnh
+    end
+    loop Từng ROI, xử lý tuần tự
+        Note over Gateway: Crop ROI, grayscale, center crop và resize 64x64
+        Gateway->>ESP32: POST /infer: 4096 pixel, slot_id, request_id, model hash, threshold
+        alt Suy luận thành công và đúng model
+            ESP32-->>Gateway: Điểm có xe, nhãn 1/0, thời gian suy luận
+        else Timeout, sai model hoặc lỗi suy luận
+            ESP32--xGateway: Không có kết quả hợp lệ
+            Note over Gateway: Đánh dấu UNKNOWN, không suy ra ô trống
+        end
+    end
+    Gateway-->>Operator: Kết quả từng ô: Có xe / Không có xe / Chưa xác định

@@ -1,42 +1,39 @@
-# Sơ Đồ Đấu Nối Phần Cứng (Hardware Wiring Diagram)
+# Kết nối camera góc rộng, gateway và ESP32
 
-Hệ thống giám sát ô đỗ xe TinyML kết hợp vi điều khiển **ESP32-CAM (AI-Thinker)** với cảm biến khoảng cách siêu âm **HC-SR04** (hoặc ToF VL53L0X).
+## Phần cứng
 
----
+- Camera IP góc rộng cố định, hoặc camera cung cấp ảnh để upload thủ công.
+- PC/mini PC chạy FastAPI gateway, có kết nối đến camera và ESP32.
+- ESP32 DevKit/ESP32-WROOM thông thường, không yêu cầu module camera.
+- Nguồn phù hợp cho từng thiết bị; gateway và ESP32 cùng mạng LAN/Wi-Fi.
 
-## 1. Bảng Chân Đấu Nối (Pinout Mapping)
+```mermaid
+flowchart LR
+    Camera[Camera IP - nguồn riêng] -->|HTTP snapshot| Router[Router LAN/Wi-Fi]
+    PC[PC hoặc mini PC - FastAPI Gateway] <--> Router
+    Router <-->|HTTP raw pixels và JSON| Board[ESP32 DevKit - CNN INT8]
+    Browser[Trình duyệt web] --> PC
+```
 
-| Module | Chân Linh Kiện | Chân ESP32-CAM | Ghi chú kỹ thuật |
-| :--- | :--- | :--- | :--- |
-| **Nguồn** | 5V | **5V** | Cần nguồn rời 5V - tối thiểu 2A |
-| **Nguồn** | GND | **GND** | Nối chung mass (Common Ground) |
-| **HC-SR04** | VCC | **5V** | HC-SR04 yêu cầu 5V để phát xung chuẩn |
-| **HC-SR04** | Trig | **GPIO 13** | Xung kích hoạt 10µs từ ESP32 |
-| **HC-SR04** | Echo | **GPIO 12** | **BẮT BUỘC** qua cầu phân áp 5V &rarr; 3.3V |
-| **HC-SR04** | GND | **GND** | Mass chung |
+Camera IP không nối vào chân GPIO của ESP32. Firmware hiện không dùng HC-SR04, flash camera, thẻ SD hoặc UART để truyền ảnh. Kết nối USB ESP32 với máy tính dùng để nạp firmware và đọc Serial Monitor 115200 baud.
 
-> [!WARNING]
-> **Chân Echo của HC-SR04 xuất mức logic 5V!** Chân GPIO của ESP32-CAM chỉ chịu được tối đa 3.3V. Đấu trực tiếp 5V vào GPIO 12 sẽ làm hỏng chip ESP32. Bắt buộc dùng 2 điện trở tạo cầu phân áp:
-> - $R_1 = 1k\Omega$ (nối từ chân Echo tới GPIO 12)
-> - $R_2 = 2k\Omega$ (hoặc $1.8k\Omega \sim 2.2k\Omega$, nối từ GPIO 12 xuống GND)
-> - Điện áp tại GPIO 12 = $5V \times \frac{2k}{1k + 2k} \approx 3.33V$ (An toàn tuyệt đối).
+## Nạp firmware
 
----
+1. Cài board package ESP32 cho Arduino IDE và thư viện TensorFlow Lite Micro tương thích API trong sketch.
+2. Mở `firmware_esp32/esp32_parking_inference/esp32_parking_inference.ino` và chọn đúng board/COM của ESP32 DevKit đang dùng.
+3. Sửa Wi-Fi trong `esp32_config.h`; xuất `model_data.h` từ model INT8 đã kiểm tra.
+4. Nạp firmware, xem Serial Monitor để kiểm tra model, arena, heap và IP.
+5. Gọi `http://<ip>/health`: chỉ dùng suy luận khi `ready: true` và hash model khớp file gateway.
+6. Khởi động gateway với `--esp32-url http://<ip>`.
 
-## 2. Lưu Ý Về Chân Trên ESP32-CAM
+Board DevKit thường có auto boot/reset khi nạp; cách vào boot phụ thuộc board cụ thể, không áp dụng sơ đồ GPIO0 của module camera cũ.
 
-ESP32-CAM có số lượng chân GPIO ngoài rất hạn chế do hầu hết chân đã dùng cho Camera OV2640 và Flash LED:
-- **GPIO 0**: Dùng cho XCLK camera. Khi nạp firmware bằng mạch USB-UART (FT232RL), nối GPIO 0 xuống GND để vào chế độ Flash Mode. Khi chạy bình thường, tháo dây GPIO 0 ra.
-- **GPIO 4**: Đèn Flash LED công suất cao (sáng chói). Trong code đã cấu hình bật chớp nhẹ 30ms khi chụp ảnh nếu thiếu sáng.
-- **GPIO 33**: Đèn LED đỏ nhỏ mặt sau (kích hoạt mức LOW). Dùng làm chỉ báo trạng thái có xe.
-- **GPIO 12 & 13**: Chân tín hiệu HS2 data của thẻ nhớ SD. Do mô hình TFLite Micro được nhúng trực tiếp vào Flash vi điều khiển, ta không dùng thẻ nhớ ngoài nên 2 chân này được tái sử dụng hoàn toàn cho Trig và Echo của cảm biến siêu âm.
+## Bộ nhớ và kiểm thử
 
----
+ESP32 có 520 KB SRAM tổng nhưng không phải toàn bộ dành cho tensor arena; Wi-Fi, HTTP, stack và runtime đều cần bộ nhớ. [Datasheet Espressif](https://documentation.espressif.com/esp32_datasheet_en.html)
 
-## 3. Sơ Đồ Cấp Nguồn Ổn Định
+Arena trong mã nguồn khởi đầu 160 KiB, chưa được xác nhận bằng board thật. Khi không đủ RAM hoặc `AllocateTensors()` lỗi, firmware trả 503 thay vì tạo nhãn 0. Đo heap sau khi Wi-Fi kết nối và chạy lặp nhiều ROI trước khi kết luận hệ thống ổn định.
 
-Khi ESP32-CAM vừa bật WiFi truyền MQTT, vừa đánh thức Camera OV2640, dòng tức thời (peak current) có thể vọt lên tới **350mA - 450mA**. Nếu dùng nguồn cổng USB máy tính yếu hoặc dây cáp kém chất lượng, ESP32 sẽ bị sụt áp (Brownout Reset).
+Môi trường project hiện chưa có toolchain Arduino để xác nhận compile/flash. API TFLite Micro thay đổi theo thư viện; chọn bản tương thích constructor và resolver trong sketch. Giao thức được mô tả ở [system_architecture.md](system_architecture.md).
 
-**Khuyến nghị giải pháp:**
-- Dùng module nguồn MB102 cắm breadboard hoặc củ sạc 5V 2A riêng.
-- Hàn thêm 1 tụ hóa $100\mu F - 470\mu F$ và 1 tụ gốm $100nF$ song song giữa 2 chân **5V** và **GND** sát ESP32-CAM để lọc xung dòng khởi động camera.
+Sketch cần Arduino-ESP32 WebServer có `HTTPRaw`/`raw()` callback. Dữ liệu pixel có thể chứa byte 0 nên không đọc qua `arg("plain")`, vốn có thể xử lý như chuỗi kết thúc bằng NUL. Firmware dùng buffer raw cố định 4096 byte và kiểm tra đã nhận đủ payload.

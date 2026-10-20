@@ -1,219 +1,226 @@
-# TinyML Smart Parking — CNN và ESP32-CAM
+# Wide-angle Smart Parking — Camera ROI và ESP32 INT8
 
-Project học tập về giám sát trạng thái **từng ô đỗ xe**, gồm pipeline huấn luyện CNN bằng Python, firmware ESP32-CAM kết hợp cảm biến khoảng cách và dashboard HTML/CSS/JavaScript.
+Project giám sát trạng thái từng ô đỗ bằng **camera cố định góc rộng** và **ESP32 thường chạy model CNN INT8**. Camera, gateway và node suy luận là các thiết bị/thành phần tách biệt.
 
-## Bài toán và phạm vi
+```text
+Camera góc rộng → FastAPI crop từng ROI → ảnh xám 64×64 → ESP32 → kết quả từng ô → Web
+```
 
-| Nhãn | Ý nghĩa | Thư mục lớp |
-|---|---|---|
-| **1** | Có xe | `occupied` |
-| **0** | Không có xe | `vacant` |
+| Nhãn/trạng thái | Ý nghĩa |
+|---|---|
+| `1` / `occupied` | Có xe |
+| `0` / `vacant` | Không có xe |
+| `unknown`, `label: null` | Chưa có kết quả hợp lệ, ví dụ mất kết nối ESP32 |
 
-Mỗi ảnh đầu vào thể hiện **một ô đỗ**. CNN nhận ảnh xám `64×64×1` và xuất điểm sigmoid cho lớp có xe. Firmware hiện dùng ngưỡng `0.75`; ngưỡng này cần được lựa chọn bằng dữ liệu validation.
+ESP32 không nhận video HD, không giải mã JPEG và không điều khiển camera. Gateway trên PC/mini PC nhận frame, cắt vùng từng ô và gửi **4096 byte pixel uint8** mỗi request. ESP32 tự lượng tử hóa, chạy TFLite Micro và trả điểm có xe/nhãn. Các ô được xử lý tuần tự trên một node.
 
-CNN hiện tại được huấn luyện từ đầu; project **chưa tích hợp pretrained model hoặc transfer learning**. Có thể dùng dataset công khai mà chưa cần thu ảnh sa bàn. Nhãn 0 không phải nhãn nhận diện người/tay; khả năng xử lý vật cản cần được kiểm chứng riêng.
+## Kiến trúc hệ thống
 
-## Cấu trúc mã nguồn hiện có
+```mermaid
+flowchart LR
+    Camera[Camera góc rộng cố định] -->|HTTP snapshot hoặc ảnh upload| Gateway[FastAPI Gateway]
+    Config[Cấu hình ROI theo camera] --> Gateway
+    Gateway --> ROI[Crop từng ô và resize grayscale 64x64]
+    ROI -->|HTTP: 4096 byte uint8 mỗi ô| ESP32[ESP32 thường - CNN INT8]
+    ESP32 -->|Nhãn 1/0 và điểm số| Gateway
+    Gateway --> Web[Dashboard trạng thái từng ô]
+    Train[Train và đánh giá trên PC/GPU] --> Export[Model TFLite INT8 và header C]
+    Export --> ESP32
+    Export -. kiểm tra tham chiếu .-> Reference[Model float/INT8 trên backend]
+```
+
+Luồng triển khai dùng `target=esp32`. Backend có chế độ `target=backend` để so sánh float/INT8 trên máy tính; chế độ này phải được chọn rõ ràng, không tự thay thế ESP32 nếu thiết bị lỗi.
+
+## SSD — System Sequence Diagram
+
+SSD dưới đây mô tả một lượt kiểm tra tại biên Web/Gateway với người vận hành, camera ngoài và ESP32. SSD là sơ đồ tuần tự hệ thống, không phải thuật toán Single Shot Detector.
+
+```mermaid
+sequenceDiagram
+    actor Operator as Người vận hành
+    participant Gateway as Web và FastAPI Gateway
+    participant Camera as Camera góc rộng
+    participant ESP32 as ESP32 chạy CNN INT8
+    Operator->>Gateway: Khởi động với cấu hình ROI và địa chỉ ESP32
+    alt Upload ảnh toàn cảnh để test
+        Operator->>Gateway: Upload frame và yêu cầu kiểm tra các ô
+    else Camera có HTTP snapshot
+        Operator->>Gateway: Yêu cầu kiểm tra camera
+        Gateway->>Camera: GET snapshot
+        Camera-->>Gateway: Ảnh toàn cảnh
+    end
+    loop Từng ROI, xử lý tuần tự
+        Note over Gateway: Crop ROI, grayscale, center crop và resize 64x64
+        Gateway->>ESP32: POST /infer: 4096 pixel, slot_id, request_id, model hash, threshold
+        alt Suy luận thành công và đúng model
+            ESP32-->>Gateway: Điểm có xe, nhãn 1/0, thời gian suy luận
+        else Timeout, sai model hoặc lỗi suy luận
+            ESP32--xGateway: Không có kết quả hợp lệ
+            Note over Gateway: Đánh dấu UNKNOWN, không suy ra ô trống
+        end
+    end
+    Gateway-->>Operator: Kết quả từng ô: Có xe / Không có xe / Chưa xác định
+```
+
+Nguồn Mermaid: [kiến trúc](docs/diagrams/system_architecture.mmd), [SSD](docs/diagrams/system_sequence.mmd). Chi tiết giao thức và giới hạn: [system_architecture.md](docs/system_architecture.md).
+
+## Cấu trúc project
 
 ```text
 Project-3/
-├── README.md
-├── ai_model/
-│   ├── model.py                       # Kiến trúc CNN grayscale, sigmoid
-│   ├── train_and_quantize.py          # Train, validation, INT8, xuất header
-│   ├── dataset_generator.py          # Sinh ảnh mô phỏng có xe / ô trống
-│   ├── fetch_public_dataset.py       # Tiền xử lý ảnh đã tải và phân lớp
-│   ├── dataset_collector_esp32.py     # Thu ảnh qua HTTP /capture
-│   ├── tflite_to_c_array.py           # Chuyển .tflite thành mảng C
-│   └── requirements.txt              # TensorFlow, NumPy, Pillow
-├── firmware_esp32cam/
-│   ├── esp32_smart_parking.ino        # Camera, HC-SR04, TFLite Micro, MQTT
-│   ├── esp32_config.h                # GPIO, WiFi, MQTT, các ngưỡng
-│   └── model_data.h                  # Dữ liệu mẫu, cần thay bằng model thật
+├── ai_model/                              # Huấn luyện và đánh giá offline
+│   ├── __init__.py
+│   ├── model.py
+│   ├── dataset_io.py                      # Preprocessing dùng chung với gateway
+│   ├── prepare_dataset.py
+│   ├── check_dataset.py
+│   ├── train_and_quantize.py
+│   ├── evaluate_model.py
+│   ├── tflite_to_c_array.py
+│   ├── requirements.txt
+│   └── requirements-gpu.txt
+├── backend/                               # Gateway camera và service FastAPI
+│   ├── __init__.py
+│   ├── app.py                             # API, Swagger, dashboard
+│   ├── inference.py                       # Preprocessing và mode tham chiếu
+│   ├── roi.py                             # ROI cố định theo độ phân giải camera
+│   ├── esp32_client.py                    # Gửi 4096 byte và kiểm tra response
+│   ├── requirements.txt                  # Gateway ESP32, không yêu cầu TensorFlow
+│   ├── requirements-reference.txt        # Thêm TensorFlow cho mode tham chiếu
+│   └── requirements-test.txt
+├── config/
+│   └── parking.example.json               # Mẫu tọa độ, chưa hiệu chỉnh camera thật
+├── firmware_esp32/
+│   └── esp32_parking_inference/            # Tên thư mục khớp Arduino sketch
+│       ├── esp32_parking_inference.ino
+│       ├── esp32_config.h
+│       └── model_data.h                   # INT8 weights và SHA-256
 ├── dashboard/
-│   ├── index.html                    # Demo và Live MQTT
-│   ├── styles.css
-│   └── app.js                        # Mô phỏng 4 pha, hiển thị telemetry
-└── docs/
-    ├── activity_flow_diagram.md
-    ├── hardware_wiring.md
-    ├── power_and_fusion_logic.md
-    └── diorama_demo_script.md
+│   ├── index.html
+│   ├── image-test.js                      # Upload ảnh đơn/toàn cảnh, kết quả ROI
+│   └── styles.css
+├── docs/
+│   ├── system_architecture.md
+│   ├── activity_flow_diagram.md
+│   ├── hardware_wiring.md
+│   ├── model_service.md
+│   ├── training_and_evaluation.md
+│   ├── gpu_training.md
+│   └── diagrams/
+│       ├── system_architecture.mmd
+│       └── system_sequence.mmd
+├── tests/
+│   └── test_gateway.py                    # Gateway, ROI và thiết bị HTTP giả
+└── README.md
 ```
 
-`raw_data/`, `dataset/`, `output/` và `ai_model/model_data.h` được người dùng chuẩn bị hoặc được sinh khi chạy script; không phải dữ liệu/model đã có sẵn trong mã nguồn.
+Dataset và model output nằm trong `ai_model/dataset/`, `ai_model/output/`, được bỏ qua bởi Git. Giữ nguyên dataset CNR-EXT và các model đã train khi thay đổi kiến trúc. File `config/parking.json` là cấu hình camera thật, cũng được bỏ qua bởi Git.
 
-## Kiến trúc CNN
+## Chạy gateway và web
 
-```text
-Grayscale 64×64×1
-→ Rescaling /255
-→ Conv2D 16 + BatchNorm + ReLU6 + MaxPool
-→ Depthwise + Pointwise 32 + MaxPool
-→ Depthwise + Pointwise 48 + MaxPool
-→ Depthwise + Pointwise 64
-→ GlobalAveragePooling
-→ Dropout 0.25
-→ Dense 1 + Sigmoid
-```
-
-Mỗi phép Depthwise và Pointwise cũng được theo sau bởi BatchNorm và ReLU6. Rescaling nằm trong model, nên đầu vào trước model dùng miền pixel `0–255`.
-
-## Cài môi trường Python
-
-Ví dụ dùng PowerShell và Python 3.12, chạy từ thư mục gốc project:
+Từ thư mục gốc `D:\Project-3`:
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r ai_model\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements-reference.txt
 ```
 
-Các lệnh dưới gọi trực tiếp Python trong `.venv`, không cần kích hoạt môi trường. Nếu terminal Windows gặp lỗi in tiếng Việt, thêm `-X utf8` sau `python.exe`.
-
-**Tương thích Keras:** script hiện gọi `model.save(saved_model_dir)` theo API lưu SavedModel cũ. Nếu dùng Keras 3, cần thay dòng đó bằng:
-
-```python
-model.save("output/parking_cnn.keras")
-model.export(saved_model_dir)
-```
-
-Bước chuyển đổi hiện đọc SavedModel bằng `TFLiteConverter.from_saved_model(saved_model_dir)`. File `.keras` chỉ được tạo khi bổ sung dòng lưu trên.
-
-## Chuẩn bị dữ liệu
-
-### Dùng dataset công khai
-
-Có thể dùng ảnh từng ô đỗ từ [CNRPark](https://cnrpark.it/) hoặc [PKLot](https://web.inf.ufpr.br/luizoliveira/research-interests/pklot/). Với CNRPark, ánh xạ `busy → occupied`, `free → vacant`. Nếu dùng ảnh toàn cảnh, cần cắt từng ô đỗ theo annotation trước.
-
-Tự tải, kiểm tra nhãn và sắp xếp ảnh:
-
-```text
-ai_model/raw_data/
-├── occupied/    # Nhãn 1: ảnh ô đỗ có xe
-└── vacant/      # Nhãn 0: ảnh ô đỗ không có xe
-```
-
-Chạy tiền xử lý:
+**Test trên máy tính khi chưa có ESP32**:
 
 ```powershell
-cd ai_model
-..\.venv\Scripts\python.exe fetch_public_dataset.py --process
+.\.venv\Scripts\python.exe -m backend.app
 ```
 
-Script chuyển grayscale, center crop hình vuông, resize `64×64` bằng Lanczos và lưu vào `dataset/occupied/`, `dataset/vacant/`. Mặc định xử lý tối đa **800 ảnh mỗi lớp**. Chạy lại có thể ghi đè các file `sample_XXXX.jpg` cùng tên.
+Mở http://127.0.0.1:8000/ và chọn **Backend · tham chiếu**. Model mặc định là `ai_model/output/run_gpu01`. Không cần môi trường GPU để thử ảnh trên Windows.
 
-CLI này **không tự tải dataset hoặc đọc annotation để phân lớp**; nó xử lý ảnh đã được chuẩn bị trong `raw_data/`.
-
-Nếu ảnh đã được chuẩn bị, có thể đặt trực tiếp vào:
-
-```text
-ai_model/dataset/
-├── occupied/
-│   └── *.jpg, *.png, ...
-└── vacant/
-    └── *.jpg, *.png, ...
-```
-
-Loader train chỉ đọc file trực tiếp trong hai thư mục lớp, không duyệt thư mục con. Loader chuyển grayscale và resize thẳng `64×64`; ảnh chưa vuông nên được tiền xử lý trước. Tên lớp cũ `cars/humans` không còn được sử dụng.
-
-### Thu ảnh từ ESP32-CAM — tùy chọn
-
-Camera phải chạy firmware cung cấp `http://<ip>/capture`. Firmware parking trong project hiện **chưa có endpoint HTTP này**.
-
-Từ thư mục `ai_model`, thay IP bằng IP camera:
+**Triển khai với ESP32**: copy `config/parking.example.json` thành `config/parking.json`, hiệu chỉnh ROI theo camera thật, rồi chạy:
 
 ```powershell
-..\.venv\Scripts\python.exe dataset_collector_esp32.py --ip 192.168.1.50 --label occupied --count 100 --interval 1
-..\.venv\Scripts\python.exe dataset_collector_esp32.py --ip 192.168.1.50 --label vacant --count 100 --interval 1
+.\.venv\Scripts\python.exe -m backend.app --esp32-url http://192.168.1.50 --roi-config config\parking.json
 ```
 
-Ảnh được lưu vào `dataset/<label>/`. Giữ thông tin phiên chụp để phục vụ chia tập và đánh giá.
+Thay IP bằng địa chỉ ESP32 in trên Serial Monitor. Trên web, chọn **ESP32 · INT8**, chọn ảnh đã crop một ô hoặc ảnh toàn cảnh theo ROI, rồi kiểm tra. Giao diện hiển thị rõ thiết bị thực hiện suy luận. `/docs` là Swagger UI.
 
-## Train và xuất model INT8
+Khi đã cấu hình ESP32, gateway mặc định không nạp TensorFlow để suy luận trên PC. Chỉ thêm `--enable-reference` khi muốn bật đồng thời chế độ đối chiếu trên backend.
 
-Chạy từ `ai_model`, sau khi chuẩn bị dữ liệu và xử lý tương thích Keras ở trên:
+Máy chỉ chạy gateway cho ESP32 có thể cài `backend/requirements.txt` để không kéo TensorFlow; file `requirements-reference.txt` ở ví dụ cài đặt trên bao gồm cả chế độ test máy tính.
 
-```powershell
-..\.venv\Scripts\python.exe train_and_quantize.py
-```
+### Các API chính
 
-| Thiết lập mặc định | Giá trị |
+| API | Công dụng |
 |---|---|
-| Epoch tối đa | 15 |
-| Batch size | 32 |
-| Optimizer | Adam, learning rate `0.001` |
-| Loss | Binary cross-entropy |
-| Chia dữ liệu | Shuffle rồi chia 80% train / 20% validation |
-| Đánh giá | Accuracy và AUC trên validation |
-| Callback | EarlyStopping và ReduceLROnPlateau |
-| Lượng tử hóa | PTQ INT8, tối đa 150 mẫu train làm calibration |
+| `GET /health` | Gateway đã khởi động, không xác nhận ESP32 đang online |
+| `GET /api/status` | Model, ngưỡng, target khả dụng, số ROI |
+| `GET /api/rois` | Cấu hình ROI, không trả URL camera |
+| `POST /api/predict` | Test ảnh một ô đỗ |
+| `POST /api/predict-frame` | Upload ảnh toàn cảnh, xử lý từng ROI |
+| `POST /api/predict-camera` | Lấy HTTP snapshot từ camera đã cấu hình và xử lý ROI |
 
-Script chưa có tùy chọn CLI `--epochs`, `--batch-size`. Để đổi cấu hình, gọi hàm:
+Hai API upload dùng multipart field `file`. Query `target=esp32` (mặc định) hoặc `target=backend`; ESP32 chỉ hỗ trợ `model=int8`. Test bằng backend tham chiếu:
 
 ```powershell
-..\.venv\Scripts\python.exe -c "from train_and_quantize import train_and_quantize; train_and_quantize(epochs=40, batch_size=32)"
+curl.exe -X POST "http://127.0.0.1:8000/api/predict?target=backend&model=int8" -F "file=@D:/images/parking_slot.jpg"
 ```
 
-Nếu thiếu thư mục lớp hoặc một lớp không có file, script tự sinh **1.600 ảnh tổng hợp**. Đây là chế độ kiểm tra pipeline; kết quả không đại diện cho chất lượng trên ảnh bãi đỗ thật.
+Chi tiết request, response và lỗi: [model_service.md](docs/model_service.md). Chưa có vòng lặp camera tự động, adapter RTSP/ONVIF hoặc giao diện vẽ ROI; hiện cấu hình ROI bằng JSON và lấy ảnh theo yêu cầu.
 
-Khi pipeline hoàn tất, các đầu ra là:
+## ROI và preprocessing
+
+`config/parking.example.json` khai báo `reference_width`, `reference_height`, `camera_id`, các hình chữ nhật `x,y,width,height` và `snapshot_url` tùy chọn. Tọa độ mẫu chỉ minh họa, không được tự dùng làm tọa độ thật.
+
+Mỗi ROI được grayscale → center crop hình vuông → bilinear resize 64×64. Đây là cùng preprocessing lúc train. Chọn vùng đủ vuông và giữ trọn xe; ROI hình chữ nhật dài có thể bị center crop cắt mất xe. Nếu đổi sang padding/hiệu chỉnh phối cảnh, cần đánh giá và có thể train lại.
+
+Độ phân giải có thể thay đổi nếu giữ tỷ lệ khung hình; góc nhìn, zoom hoặc vị trí camera thay đổi thì phải hiệu chỉnh ROI. Chưa có xử lý méo fisheye hay ROI đa giác.
+
+## Train CNN và kiểm tra model
+
+CNN được train từ đầu, không dùng pretrained model:
 
 ```text
-ai_model/
-├── output/
-│   ├── parking_cnn_saved_model/
-│   └── parking_cnn_int8.tflite
-└── model_data.h
-
-firmware_esp32cam/
-└── model_data.h    # Bị ghi đè bằng model vừa xuất
+64×64×1 → Rescaling /255 → Conv 16 + Pool
+→ Depthwise/Pointwise 32 + Pool → Depthwise/Pointwise 48 + Pool
+→ Depthwise/Pointwise 64 → GAP → Dropout 0.25 → Dense 1 + Sigmoid
 ```
 
-Kích thước thực tế và scale/zero-point được in khi chạy. Script chưa đánh giá model INT8 trên tập test.
+Dataset có `train/val/test`, mỗi tập gồm `occupied/` và `vacant/`. Chia theo ngày/camera/chuỗi chụp trước khi train để tránh rò rỉ ảnh gần trùng. Model train float32, lưu checkpoint tốt nhất theo validation rồi PTQ INT8 với calibration từ train.
 
-**Đánh giá cho báo cáo:** hiện chưa có test độc lập hoặc chia tập theo camera/ngày chụp. Cần bổ sung chia tập theo nhóm để tránh ảnh gần trùng xuất hiện ở cả train và validation; giữ test riêng và đánh giá cả float lẫn INT8. Giữ metadata camera/ngày chụp trước khi script tiền xử lý đổi tên ảnh. Dashboard mô phỏng không phải kết quả kiểm thử CNN.
+```powershell
+.\.venv\Scripts\python.exe -X utf8 ai_model\check_dataset.py --dataset-dir ai_model\dataset
+.\.venv\Scripts\python.exe -X utf8 ai_model\train_and_quantize.py --dataset-dir ai_model\dataset --output-dir ai_model\output\run02 --epochs 40 --batch-size 32 --device cpu
+```
 
-## Dashboard
+Train RTX 3050 Ti qua Ubuntu/WSL2: [gpu_training.md](docs/gpu_training.md). Toàn bộ quy trình chia dữ liệu, chọn ngưỡng validation và đánh giá float/INT8 trên test: [training_and_evaluation.md](docs/training_and_evaluation.md).
 
-Mở `dashboard/index.html` bằng trình duyệt. Đây là website tĩnh, không có bước npm/build hoặc backend riêng. MQTT.js và font được tải qua mạng.
+Ngưỡng gateway lấy từ `--threshold`, nếu không có thì dùng báo cáo validation, cuối cùng mới dùng `0.75` mặc định. Header firmware nhận ngưỡng từ request để so sánh nhất quán. Điểm sigmoid không phải tỷ lệ dự đoán đúng.
 
-- **Sa bàn Demo:** mô phỏng ô trống, vật cản không phải xe, xe vào và xe rời đi. Điểm số, độ trễ và dòng điện là dữ liệu minh họa.
-- **Live MQTT:** nhận telemetry qua WebSocket. Giao diện mặc định đặt URL `wss://broker.emqx.io:8084/mqtt` và topic `parking/+/telemetry`; có thể thay trong phần cấu hình.
+## Nạp model và firmware ESP32
 
-Firmware và dashboard phải dùng cùng broker, topic phù hợp. ESP32 dùng MQTT TCP, còn trình duyệt dùng MQTT WebSocket. Canvas trên dashboard không phải luồng camera trực tiếp từ ESP32.
+Xuất lại header khi đổi model:
 
-## Firmware ESP32-CAM
+```powershell
+.\.venv\Scripts\python.exe -X utf8 ai_model\tflite_to_c_array.py ai_model\output\run_gpu01\parking_cnn_int8.tflite firmware_esp32\esp32_parking_inference\model_data.h
+```
 
-Sketch hướng tới AI Thinker ESP32-CAM, camera OV2640 và **HC-SR04**. Driver VL53L0X chưa được triển khai trong sketch hiện tại.
+`--export-firmware` của script train cũng xuất vào đường dẫn mới. Header chứa SHA-256 để gateway kiểm tra đúng model đang chạy trên node.
 
-Luồng xử lý:
+Mở `firmware_esp32/esp32_parking_inference/esp32_parking_inference.ino` bằng Arduino IDE, dùng board ESP32 DevKit/WROOM và thư viện TFLite Micro tương thích API trong sketch. Cấu hình Wi-Fi tại `esp32_config.h`. Firmware cung cấp `GET /health` và `POST /infer`; không dùng driver camera, HC-SR04 hay MQTT.
 
-1. Đọc khoảng cách theo chu kỳ cấu hình `250 ms`.
-2. Khoảng cách dưới `15 cm`: chụp ảnh và chạy CNN.
-3. Điểm có xe `>= 0.75`: gửi `OCCUPIED`, reason `CAR_DETECTED`.
-4. Điểm có xe `< 0.75`: giữ `VACANT`, reason `NO_CAR_DETECTED`.
-5. Khi đang có xe và khoảng cách vượt `18 cm`: gửi `VACANT`, reason `CAR_DEPARTED_SENSOR_ONLY`, không chạy lại CNN.
+Header hiện được tạo từ `run_gpu01` (20.048 byte). Arena ban đầu đặt **160 KiB**, cần đo lại trên board; kích thước trọng số không phải nhu cầu RAM toàn bộ. Nếu `AllocateTensors()` thất bại, không được coi thiết bị đã sẵn sàng. Backend không tự chuyển sang chạy model thay ESP32 khi lỗi.
 
-Chuẩn bị Arduino IDE, ESP32 board package, PubSubClient và bản TensorFlow Lite Micro tương thích với các header/API trong sketch. Thư viện wrapper TinyML không mặc nhiên thay thế được API TFLite Micro đang dùng.
+## Kiểm chứng và giới hạn
 
-Điền WiFi, broker, topic và các ngưỡng trong `firmware_esp32cam/esp32_config.h`. Sketch cần nằm trong thư mục Arduino có tên khớp file `.ino`, ví dụ `esp32_smart_parking/`, cùng hai header firmware. Nối GPIO 0 với GND để vào chế độ flash khi nạp; tháo kết nối này và reset để chạy. Xem [đấu nối phần cứng](docs/hardware_wiring.md).
+Chạy kiểm tra gateway với model local và ESP32 HTTP giả:
 
-### Các điểm cần xử lý trước khi kiểm thử phần cứng
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements-test.txt
+.\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -v
+```
 
-- `model_data.h` hiện chỉ chứa dữ liệu mẫu, cần thay bằng model xuất thật và kiểm tra hợp lệ.
-- **Chuẩn hóa chưa đồng nhất:** model nhận pixel `0–255` rồi tự chia 255; firmware đang chia 255 trước khi lượng tử hóa. Với model này, firmware cần dùng `q = round(pixel_gray / input_scale) + input_zero_point`, rồi clamp về INT8.
-- **Crop/resize chưa đồng nhất:** firmware crop `120×120` và lấy mẫu theo tọa độ nguyên; script tiền xử lý dùng Lanczos; loader train resize trực tiếp. Cần thống nhất trước khi đối chiếu Python và ESP32.
-- Tensor arena đang đặt **28 KiB**, chưa xác nhận đủ. Riêng tensor `64×64×16` có 65.536 phần tử INT8; cần kiểm tra `AllocateTensors()` và đo bộ nhớ thực tế.
-- Sketch đã giới hạn thời điểm chạy CNN nhưng chưa triển khai đầy đủ tắt/ngủ camera và light sleep như tài liệu thiết kế mô tả.
+Các bài test xác minh crop/giao thức/UNKNOWN và mode tham chiếu; không thay thế compile hoặc đo trên ESP32 thật.
 
-Các mức khoảng 18–25 KB model, 42 ms suy luận và 88% tiết kiệm năng lượng trong tài liệu là mục tiêu hoặc ước tính tham khảo, chưa phải benchmark đã được xác nhận của phiên bản này.
+- Có gateway/API, preprocessing ROI, transport ESP32 và firmware nguồn; chế độ backend tham chiếu hỗ trợ kiểm tra trên máy tính.
+- Chưa xác nhận compile/chạy firmware trên ESP32 thật vì môi trường chưa có Arduino toolchain/TFLite Micro cho board.
+- Chưa kiểm chứng camera thật, FPS nhiều ô, RAM/latency ESP32 hoặc điện năng. Không có cam kết tiết kiệm pin từ thiết kế trước.
+- Test bằng dữ liệu công khai không bảo đảm độ chính xác trên camera góc rộng thực tế. Cần ảnh cùng góc nhìn và phân tích lỗi/nhãn/ROI.
+- Request lỗi, timeout, sai hash hoặc sai ID phải được báo lỗi/UNKNOWN; không được đổi thành nhãn không có xe.
 
-## Tài liệu liên quan
-
-- [Sơ đồ hoạt động và pipeline](docs/activity_flow_diagram.md)
-- [Đấu nối phần cứng](docs/hardware_wiring.md)
-- [Sensor fusion và phân tích năng lượng](docs/power_and_fusion_logic.md)
-- [Kịch bản demo sa bàn](docs/diorama_demo_script.md)
-
-Tài liệu trong `docs` mô tả cả thiết kế dự kiến và ví dụ demo. Khi đánh giá chức năng đã triển khai, đối chiếu với mã nguồn và các giới hạn trong README này.
+Tài liệu: [kiến trúc và giao thức](docs/system_architecture.md), [luồng hoạt động](docs/activity_flow_diagram.md), [kết nối thiết bị](docs/hardware_wiring.md), [FastAPI](docs/model_service.md).

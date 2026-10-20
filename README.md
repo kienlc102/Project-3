@@ -54,7 +54,7 @@ sequenceDiagram
         Gateway->>ESP32: Tensor 4096 byte, slot_id, request_id, model hash, threshold
         ESP32->>Sensor: Đọc cảm biến đúng ô, lọc và xác nhận trạng thái
         Sensor-->>ESP32: Khoảng cách hoặc lỗi đo
-        Note over ESP32: Chạy CNN INT8; kiểm tra độ mới hai nguồn
+        Note over ESP32: Chạy CNN INT8 và kiểm tra độ mới hai nguồn
         alt Hai nguồn hợp lệ và cùng xác nhận có xe
             ESP32-->>Gateway: occupied, label 1 và bằng chứng hai nguồn
         else Hai nguồn hợp lệ và cùng xác nhận trống
@@ -62,11 +62,11 @@ sequenceDiagram
         else Mâu thuẫn, thiếu dữ liệu hoặc quá hạn
             ESP32-->>Gateway: unknown, label null và lý do
         else ESP32 mất kết nối hoặc phản hồi không hợp lệ
-            Note over Gateway: Đánh dấu UNKNOWN; không suy ra ô trống
+            Note over Gateway: Đánh dấu UNKNOWN, không suy ra ô trống
         end
     end
     Gateway-->>Operator: Trạng thái cuối từng ô và thông tin CNN/khoảng cách
-    Note over Operator,Gateway: Upload ảnh cũ chỉ test CNN; không ghép với khoảng cách hiện tại
+    Note over Operator,Gateway: Upload ảnh cũ chỉ test CNN, không ghép với khoảng cách hiện tại
 ```
 
 Nguồn Mermaid: [kiến trúc](docs/diagrams/system_architecture.mmd), [SSD](docs/diagrams/system_sequence.mmd). Chi tiết giao thức và giới hạn: [system_architecture.md](docs/system_architecture.md).

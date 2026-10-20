@@ -1,4 +1,6 @@
-# Kiến trúc camera góc rộng và ESP32
+# Kiến trúc camera góc rộng, cảm biến khoảng cách và ESP32
+
+**Thiết kế đích dùng cả khoảng cách và CNN.** Code hiện mới có nhánh ảnh/CNN; phần cảm biến, giao thức và fusion còn cần bổ sung. Xem [sensor_fusion.md](sensor_fusion.md).
 
 ## Phân chia trách nhiệm
 
@@ -6,7 +8,8 @@
 |---|---|
 | Camera cố định góc rộng | Cung cấp ảnh toàn cảnh bãi xe |
 | FastAPI gateway trên PC/mini PC | Nhận ảnh, crop ROI theo cấu hình, tiền xử lý, gửi từng tensor tới ESP32 |
-| ESP32 thường, ví dụ ESP32 DevKit/WROOM | Chạy model CNN INT8 bằng TFLite Micro, trả điểm và nhãn cho từng ROI |
+| Cảm biến khoảng cách, ví dụ HC-SR04 cho sa bàn | Mỗi ô một cảm biến, phát hiện vật thể trong vùng đo |
+| ESP32 thường, ví dụ ESP32 DevKit/WROOM | Chạy CNN INT8, đọc/lọc khoảng cách theo slot_id, kiểm tra độ mới và fusion |
 | Dashboard | Upload để test và hiển thị kết quả từng ô, thể hiện rõ thiết bị suy luận |
 | PC/GPU train | Huấn luyện float, PTQ INT8 và xuất trọng số cho firmware |
 
@@ -27,7 +30,13 @@ Copy `config/parking.example.json` thành `config/parking.json`, chỉnh tọa �
 
 Model hiện train bằng center crop hình vuông và bilinear resize. Backend tiếp tục dùng cùng preprocessing. Chọn ROI đủ vuông và chứa trọn xe để tránh center crop cắt mất xe. Chưa có ROI đa giác, hiệu chỉnh phối cảnh, padding hoặc sửa méo fisheye. Muốn đổi preprocessing phải đánh giá lại và có thể cần train lại.
 
-## Giao thức gateway → ESP32
+## Quyết định trạng thái trong thiết kế đích
+
+Mỗi ROI ghép đúng cảm biến qua `slot_id`. ESP32 dùng khoảng cách đã lọc và hysteresis, kết hợp nhãn CNN: cả hai xác nhận có xe → `1`; cả hai xác nhận trống → `0`; bất đồng, lỗi hoặc dữ liệu quá hạn → `unknown`. Không có echo không phải là bằng chứng ô trống. Cần frame và số đo cùng lượt kiểm tra; ảnh upload cũ chỉ test CNN.
+
+Giữ nguyên input/model CNN; fusion là logic sau suy luận. Cách lọc, ngưỡng vào/ra, đồng bộ thời gian và kiểm thử được đặc tả trong [sensor_fusion.md](sensor_fusion.md).
+
+## Giao thức gateway → ESP32 hiện có (chỉ CNN)
 
 `POST http://<esp32-ip>/infer`
 
@@ -53,9 +62,11 @@ README chứa sơ đồ kiến trúc và **SSD (System Sequence Diagram)** của
 - [Kiến trúc thành phần](diagrams/system_architecture.mmd)
 - [SSD](diagrams/system_sequence.mmd)
 
-SSD mô tả tương tác tại biên Web/Gateway với người dùng, camera và node suy luận. Bước crop bên trong gateway được ghi chú để làm rõ dữ liệu truyền sang ESP32. SSD ở đây không phải mô hình object detection Single Shot Detector; CNN vẫn phân loại từng ROI cố định.
+SSD mô tả tương tác đích tại biên Web/Gateway với người dùng, camera, ESP32 và cảm biến từng ô. Phần cảm biến/fusion chưa có trong giao thức hiện tại. Bước crop bên trong gateway được ghi chú để làm rõ dữ liệu truyền sang ESP32. SSD ở đây không phải mô hình object detection Single Shot Detector; CNN vẫn phân loại từng ROI cố định.
 
 ## Trạng thái triển khai và giới hạn
+
+- Chưa có driver khoảng cách, bộ lọc/hysteresis, fusion, giao thức hai nguồn và UI tương ứng. Nhãn API hiện tại là nhãn CNN.
 
 - Đã có gateway upload ảnh đơn, ảnh toàn cảnh theo ROI và lấy HTTP snapshot theo yêu cầu.
 - Đã có transport gửi tensor đến ESP32, kiểm tra hash/request/slot/threshold và xử lý UNKNOWN.

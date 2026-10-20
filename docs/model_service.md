@@ -1,5 +1,7 @@
 # FastAPI gateway: camera ROI và ESP32
 
+> API/web hiện tại chỉ kiểm tra CNN, kể cả khi chọn ESP32. Thiết kế mới yêu cầu kết hợp cảm biến khoảng cách; driver, fusion và response hai nguồn chưa được triển khai. Không dùng nhãn CNN hiện tại như kết quả fusion. Xem [đặc tả](sensor_fusion.md).
+
 ## Khởi động
 
 Tại `D:\Project-3`:

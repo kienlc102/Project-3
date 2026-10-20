@@ -2,23 +2,26 @@ sequenceDiagram
     actor Operator as Người vận hành
     participant Gateway as Web và FastAPI Gateway
     participant Camera as Camera góc rộng
-    participant ESP32 as ESP32 chạy CNN INT8
-    Operator->>Gateway: Khởi động với cấu hình ROI và địa chỉ ESP32
-    alt Upload ảnh toàn cảnh để test
-        Operator->>Gateway: Upload frame và yêu cầu kiểm tra các ô
-    else Camera có HTTP snapshot
-        Operator->>Gateway: Yêu cầu kiểm tra camera
-        Gateway->>Camera: GET snapshot
-        Camera-->>Gateway: Ảnh toàn cảnh
-    end
-    loop Từng ROI, xử lý tuần tự
-        Note over Gateway: Crop ROI, grayscale, center crop và resize 64x64
-        Gateway->>ESP32: POST /infer: 4096 pixel, slot_id, request_id, model hash, threshold
-        alt Suy luận thành công và đúng model
-            ESP32-->>Gateway: Điểm có xe, nhãn 1/0, thời gian suy luận
-        else Timeout, sai model hoặc lỗi suy luận
-            ESP32--xGateway: Không có kết quả hợp lệ
-            Note over Gateway: Đánh dấu UNKNOWN, không suy ra ô trống
+    participant ESP32 as ESP32 CNN và fusion
+    participant Sensor as Cảm biến khoảng cách theo ô
+    Operator->>Gateway: Kiểm tra bãi xe với ROI và ánh xạ cảm biến
+    Gateway->>Camera: Lấy frame mới
+    Camera-->>Gateway: Frame toàn cảnh
+    loop Từng ô theo slot_id
+        Note over Gateway: Crop ROI, grayscale và resize 64x64
+        Gateway->>ESP32: Tensor 4096 byte, slot_id, request_id, model hash, threshold
+        ESP32->>Sensor: Đọc cảm biến đúng ô, lọc và xác nhận trạng thái
+        Sensor-->>ESP32: Khoảng cách hoặc lỗi đo
+        Note over ESP32: Chạy CNN INT8; kiểm tra độ mới hai nguồn
+        alt Hai nguồn hợp lệ và cùng xác nhận có xe
+            ESP32-->>Gateway: occupied, label 1 và bằng chứng hai nguồn
+        else Hai nguồn hợp lệ và cùng xác nhận trống
+            ESP32-->>Gateway: vacant, label 0 và bằng chứng hai nguồn
+        else Mâu thuẫn, thiếu dữ liệu hoặc quá hạn
+            ESP32-->>Gateway: unknown, label null và lý do
+        else ESP32 mất kết nối hoặc phản hồi không hợp lệ
+            Note over Gateway: Đánh dấu UNKNOWN; không suy ra ô trống
         end
     end
-    Gateway-->>Operator: Kết quả từng ô: Có xe / Không có xe / Chưa xác định
+    Gateway-->>Operator: Trạng thái cuối từng ô và thông tin CNN/khoảng cách
+    Note over Operator,Gateway: Upload ảnh cũ chỉ test CNN; không ghép với khoảng cách hiện tại

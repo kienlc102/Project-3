@@ -1,0 +1,11 @@
+**
+!backend/
+!backend/**
+!ai_model/
+!ai_model/__init__.py
+!ai_model/dataset_io.py
+!dashboard/
+!dashboard/**
+**/__pycache__/
+**/*.py[cod]
+**/.env

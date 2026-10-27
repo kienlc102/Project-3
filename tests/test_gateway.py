@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from backend.app import create_app
-from backend.roi import CameraConfig
+from backend.schemas.camera import CameraConfig
 
 
 class DeviceHandler(BaseHTTPRequestHandler):

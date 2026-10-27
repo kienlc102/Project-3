@@ -13,8 +13,7 @@ import uuid
 
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+from backend.config.settings import MAX_UPLOAD_BYTES
 
 
 def read_frame(data):
@@ -48,7 +47,7 @@ class ParkingPredictor:
         import numpy as np
         from PIL import Image
         from ai_model.dataset_io import preprocess_pil
-        from backend.esp32_client import Esp32Client
+        from backend.service.esp32_client import Esp32Client
 
         Image.MAX_IMAGE_PIXELS = 20_000_000
         self.np, self.Image, self.preprocess = np, Image, preprocess_pil
@@ -96,7 +95,7 @@ class ParkingPredictor:
         return self.predict_pixels(self.preprocess(image), model_type, image.size, target)
 
     def predict_pixels(self, pixels, model_type, original_size, target="backend", slot_id="upload", request_id=None):
-        from backend.esp32_client import DeviceError
+        from backend.service.esp32_client import DeviceError
         request_id = request_id or uuid.uuid4().hex
         if target not in {"backend", "esp32"}:
             raise ValueError("Unknown execution target")

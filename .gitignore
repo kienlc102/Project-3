@@ -1,4 +1,6 @@
 .venv/
+.env
+.tmp-parkly*/
 __pycache__/
 *.py[cod]
 CNR-EXT-Patches-150x150/

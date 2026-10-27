@@ -2,6 +2,76 @@
 
 > API/web hiện tại chỉ kiểm tra CNN, kể cả khi chọn ESP32. Thiết kế mới yêu cầu kết hợp cảm biến khoảng cách; driver, fusion và response hai nguồn chưa được triển khai. Không dùng nhãn CNN hiện tại như kết quả fusion. Xem [đặc tả](sensor_fusion.md).
 
+## Cấu trúc backend
+
+```text
+backend/
+├── app.py                 # App factory, lifespan, dashboard và CLI
+├── api/
+│   ├── routes.py          # Tổng hợp các router
+│   ├── uploads.py         # Đọc upload với giới hạn dung lượng
+│   └── endpoints/
+│       ├── status.py      # Health và trạng thái gateway
+│       ├── prediction.py  # Dự đoán một ô đỗ
+│       └── camera.py      # Cấu hình ROI, dự đoán frame và camera
+├── config/
+│   ├── settings.py        # Đường dẫn mặc định và giới hạn upload
+│   └── camera.py          # Đọc cấu hình ROI từ JSON
+├── database/              # Dành cho lưu trữ; chưa có triển khai
+├── model/inference.py     # Nạp model, tiền xử lý và suy luận
+├── schemas/
+│   ├── camera.py          # Schema camera, kiểm tra và cắt ROI
+│   └── prediction.py      # Schema response dự đoán
+└── service/
+    ├── esp32_client.py    # HTTP transport tới ESP32
+    └── prediction.py      # Kiểm tra target và xử lý các ROI trong frame
+```
+
+Các module cũ `backend.inference`, `backend.esp32_client` và `backend.roi`
+đã chuyển vào các package trên. Lệnh chạy và đường dẫn API giữ nguyên.
+File cấu hình camera vẫn nằm ở `config/parking.json` tại gốc project;
+`backend/config/` chứa mã Python đọc cấu hình.
+
+## Chạy bằng Docker Compose
+
+Cần Docker Desktop đang chạy Linux containers và model đã có trong
+`ai_model/output/run_gpu01` (file `.keras` và/hoặc `parking_cnn_int8.tflite`).
+Image dùng Python 3.11 và TensorFlow CPU; không cần GPU.
+
+Từ thư mục gốc project:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+docker compose logs -f backend
+```
+
+Frontend quản lý: http://localhost:3000/ — Swagger: http://localhost:8000/docs.
+Compose khởi động cả frontend Next.js và backend; xem [hướng dẫn frontend](frontend.md).
+Dashboard kiểm tra cũ vẫn ở http://localhost:8000/.
+Mặc định chạy backend tham chiếu; chọn **Backend · tham chiếu** trên dashboard.
+
+Để đổi cổng, thư mục model hoặc địa chỉ ESP32, sao chép `.env.example` thành
+`.env` và sửa các biến tương ứng:
+
+```dotenv
+BACKEND_PORT=8000
+MODEL_DIR=./ai_model/output/run_gpu01
+ESP32_URL=http://192.168.1.50
+```
+
+Sau đó chạy lại `docker compose up -d`. Khi `ESP32_URL` có giá trị, backend
+chạy chế độ ESP32, không nạp model tham chiếu; cần file `parking_cnn_int8.tflite`
+trong thư mục model để kiểm tra hash. ESP32 phải truy cập được từ container.
+
+Model và thư mục `config/` được mount chỉ đọc. Muốn dùng camera ROI, tạo
+`config/parking.json` từ `config/parking.example.json`, chỉnh lại theo camera
+thực tế rồi chạy `docker compose restart backend`. Nếu camera chạy trên máy
+Windows host, dùng `host.docker.internal` thay cho `localhost` trong snapshot URL.
+Thay model cũng cần restart backend; sửa mã nguồn cần `docker compose up --build -d`.
+
+Dừng dịch vụ: `docker compose down`.
+
 ## Khởi động
 
 Tại `D:\Project-3`:

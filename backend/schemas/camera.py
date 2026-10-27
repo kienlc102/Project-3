@@ -1,7 +1,5 @@
 """Fixed-camera rectangular ROIs, scaled from a known reference resolution."""
 
-import json
-from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -44,7 +42,3 @@ class CameraConfig(BaseModel):
                 raise ValueError(f"ROI {slot.id} becomes empty at this resolution")
             yield slot.id, image.crop((left, top, right, bottom)), [left, top, right, bottom]
 
-
-def load_config(path):
-    path = Path(path)
-    return CameraConfig.model_validate(json.loads(path.read_text(encoding="utf-8"))) if path.is_file() else None

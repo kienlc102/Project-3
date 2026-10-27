@@ -15,6 +15,20 @@ Cảm biến khoảng cách từng ô → ESP32 lọc và xác nhận ───�
 
 ESP32 không nhận video HD, không giải mã JPEG và không điều khiển camera. Gateway trên PC/mini PC nhận frame, cắt vùng từng ô và gửi **4096 byte pixel uint8** mỗi request. Trong thiết kế đích, ESP32 chạy TFLite Micro, đọc cảm biến tương ứng và trả kết quả fusion cùng bằng chứng hai nguồn. Các ô được xử lý tuần tự trên một node.
 
+## Giao diện quản lý chủ bãi
+
+Frontend Next.js nằm trong `frontend/`, gồm tổng quan, sơ đồ ô đỗ, camera &
+thiết bị, lịch sử kiểm tra trong phiên và cài đặt hiển thị.
+
+```powershell
+cd frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+Mở http://localhost:3000. Trang có chế độ minh họa riêng; chọn **Kết nối hệ thống thật**
+để dùng backend tại cổng 8000. Xem [hướng dẫn frontend](docs/frontend.md).
+
 ## Kiến trúc hệ thống
 
 ```mermaid

@@ -123,6 +123,32 @@ class GatewayTests(unittest.TestCase):
         with patch.object(self.client.app.state.predictor, "device", None):
             self.assertEqual(self.upload("/api/predict").status_code, 503)
 
+    def test_tinyml_detection_api_defaults_to_local_backend(self):
+        with patch.object(self.client.app.state, "camera", None):
+            for model in ("int8", "float"):
+                response = self.upload(f"/api/detect/tinyml?model={model}")
+                self.assertEqual(response.status_code, 200, response.text)
+                body = response.json()
+                self.assertEqual(body["execution_target"], "backend")
+                self.assertEqual(body["model"], model)
+                self.assertEqual(body["label"], int(body["car_score"] >= 0.6))
+        self.assertEqual(len(self.device.received), 0, "The test API must not contact ESP32 by default")
+        response = self.upload("/api/detect/tinyml?target=esp32")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["execution_target"], "esp32")
+        self.assertEqual(len(self.device.received), 1)
+        self.assertEqual(self.upload("/api/detect/tinyml?target=esp32&model=float").status_code, 400)
+        self.assertEqual(self.upload("/api/detect/tinyml?target=raspberry_pi").status_code, 422)
+        self.assertEqual(self.upload("/api/detect/tinyml?model=yolo").status_code, 422)
+        self.assertEqual(self.upload("/api/detect/yolo").status_code, 503)
+
+    def test_tinyml_detection_api_preserves_errors(self):
+        self.assertEqual(self.upload("/api/detect/tinyml", b"bad").status_code, 422)
+        self.assertEqual(self.upload("/api/detect/tinyml", b"").status_code, 422)
+        self.assertEqual(self.upload("/api/detect/tinyml", b"x" * (10 * 1024 * 1024 + 1)).status_code, 413)
+        self.device.bad_identity = True
+        self.assertEqual(self.upload("/api/detect/tinyml?target=esp32").status_code, 502)
+
     def test_files_and_config_boundaries(self):
         self.assertEqual(self.upload("/api/predict?target=backend", b"bad image").status_code, 422)
         self.assertEqual(self.upload("/api/predict?target=backend", b"").status_code, 422)

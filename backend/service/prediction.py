@@ -1,10 +1,13 @@
 """Prediction target validation and camera frame orchestration."""
 import uuid
 from fastapi import HTTPException
+from PIL import Image
 from backend.model.inference import read_frame
 from backend.service.esp32_client import DeviceError
 
 def validate_target(predictor, model, target):
+    if predictor is None:
+        raise HTTPException(503, "Nhánh CNN chưa bật. Chọn Raspberry Pi hoặc cấu hình ESP32/backend tham chiếu.")
     if target == "esp32" and model != "int8":
         raise HTTPException(400, "ESP32 chỉ chạy INT8.")
     if model not in predictor.available_models:
@@ -16,14 +19,21 @@ def validate_target(predictor, model, target):
 
 def process_frame(request, data, model, target):
     predictor, camera = request.app.state.predictor, request.app.state.camera
-    validate_target(predictor, model, target)
+    vision = request.app.state.vision
+    if target == "raspberry_pi":
+        if vision is None:
+            raise HTTPException(503, "Nhánh camera chưa bật. Khởi động với --vision-model.")
+    else:
+        validate_target(predictor, model, target)
     if camera is None:
         raise HTTPException(409, "Chưa có cấu hình ROI. Tạo config/parking.json hoặc dùng --roi-config.")
     try:
         image = read_frame(data)
+        if target == "raspberry_pi":
+            return vision.predict_frame(image, camera)
         crops = list(camera.crops(image))
-    except (ValueError, OSError, predictor.Image.DecompressionBombError,
-            predictor.Image.DecompressionBombWarning) as error:
+    except (ValueError, OSError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as error:
         raise HTTPException(422, str(error)) from error
     frame_id, results, device_failed = uuid.uuid4().hex, [], False
     for slot_id, crop, box in crops:

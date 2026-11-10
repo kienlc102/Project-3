@@ -20,7 +20,7 @@ def configure_device(tf, device="auto"):
         if platform.system() == "Windows":
             message += (" TensorFlow >=2.11 does not support CUDA on native Windows. "
                         "Use Ubuntu on WSL2 and install ai_model/requirements-gpu.txt. "
-                        "See docs/gpu_training.md.")
+                        "See README.md for training instructions.")
         else:
             message += " Check nvidia-smi and install ai_model/requirements-gpu.txt in this Linux environment."
         if device == "gpu":

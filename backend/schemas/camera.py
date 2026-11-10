@@ -18,10 +18,14 @@ class CameraConfig(BaseModel):
     reference_width: int = Field(gt=0)
     reference_height: int = Field(gt=0)
     snapshot_url: str | None = None
+    capture_device: int | None = Field(default=None, ge=0)
+    use_picamera2: bool = False
     slots: list[Slot] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def validate_slots(self):
+        if sum([bool(self.snapshot_url), self.capture_device is not None, self.use_picamera2]) > 1:
+            raise ValueError("Choose only one camera source: snapshot_url, capture_device or use_picamera2")
         if len({slot.id for slot in self.slots}) != len(self.slots):
             raise ValueError("Slot IDs must be unique")
         for slot in self.slots:
@@ -29,7 +33,7 @@ class CameraConfig(BaseModel):
                 raise ValueError(f"ROI {slot.id} is outside the reference image")
         return self
 
-    def crops(self, image):
+    def boxes(self, image):
         width, height = image.size
         if abs((width / height) / (self.reference_width / self.reference_height) - 1) > 0.01:
             raise ValueError("Frame aspect ratio differs from ROI reference; recalibrate the camera configuration")
@@ -40,5 +44,9 @@ class CameraConfig(BaseModel):
             bottom = round((slot.y + slot.height) * height / self.reference_height)
             if right <= left or bottom <= top:
                 raise ValueError(f"ROI {slot.id} becomes empty at this resolution")
-            yield slot.id, image.crop((left, top, right, bottom)), [left, top, right, bottom]
+            yield slot.id, [left, top, right, bottom]
+
+    def crops(self, image):
+        for slot_id, box in self.boxes(image):
+            yield slot_id, image.crop(tuple(box)), box
 

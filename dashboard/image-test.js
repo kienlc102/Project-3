@@ -17,6 +17,13 @@
     target.disabled = busy || !ready;
     scope.disabled = busy;
     if (target.value === 'esp32') { model.value = 'int8'; model.disabled = true; }
+    if (target.value === 'raspberry_pi') {
+      model.value = 'yolo'; model.disabled = true;
+      scope.value = 'frame'; scope.disabled = true;
+    } else {
+      for (const option of model.options) option.disabled = option.value === 'yolo';
+      if (model.value === 'yolo') model.value = [...model.options].find(o => !o.disabled)?.value || 'int8';
+    }
     form.setAttribute('aria-busy', String(busy));
   }
   function clearResult() {
@@ -79,19 +86,19 @@
       model.replaceChildren(...data.models.map((type) => {
         const option = document.createElement('option');
         option.value = type;
-        option.textContent = type === 'int8' ? 'INT8' : 'Float32';
+        option.textContent = type === 'yolo' ? 'YOLO pretrained' : type === 'int8' ? 'INT8' : 'Float32';
         return option;
       }));
       if (data.models.includes(previous)) model.value = previous;
       target.replaceChildren(...data.execution_targets.map((type) => {
         const option = document.createElement('option');
         option.value = type;
-        option.textContent = type === 'esp32' ? 'ESP32 · INT8' : 'Backend · tham chiếu';
+        option.textContent = type === 'raspberry_pi' ? 'Raspberry Pi · Camera + YOLO' : type === 'esp32' ? 'ESP32 · INT8' : 'Backend · tham chiếu';
         return option;
       }));
-      target.value = data.execution_targets.includes('esp32') ? 'esp32' : 'backend';
+      target.value = data.default_target || data.execution_targets[0];
       const source = data.threshold_source === 'validation' ? 'chọn trên validation' : data.threshold_source === 'default' ? 'mặc định, chưa chọn trên validation' : 'đã cấu hình';
-      el('prediction-config').textContent = `${data.run} · Ngưỡng ${data.threshold.toFixed(2)} (${source}) · ${data.roi_count} ROI. ${data.execution_targets.includes('esp32') ? 'Đã cấu hình địa chỉ ESP32; kết nối được kiểm tra khi gửi ảnh.' : 'Chưa cấu hình ESP32, chỉ có chế độ backend tham chiếu.'}`;
+      el('prediction-config').textContent = `${data.run} · Ngưỡng ${data.threshold.toFixed(2)} (${source}) · ${data.roi_count} ROI. ${data.vision ? `Camera YOLO: ${data.vision.model} · confidence ${data.vision.confidence} · che phủ ROI ${data.vision.overlap}.` : 'Kết quả CNN từ ảnh; ESP32 được kiểm tra kết nối khi suy luận.'}`;
       el('backend-status').textContent = 'Gateway sẵn sàng';
       el('backend-status').className = 'backend-status is-ready';
       message.textContent = '';
@@ -161,7 +168,7 @@
           el('roi-results-body').append(row);
         }
         el('roi-results').hidden = false;
-        message.textContent = data.complete ? `Đã suy luận tại ${target.value === 'esp32' ? 'ESP32' : 'backend tham chiếu'}.` : 'Có lỗi thiết bị. Các ô không có kết quả hợp lệ được giữ là chưa xác định.';
+        message.textContent = data.complete ? `Đã suy luận tại ${target.value === 'raspberry_pi' ? 'Raspberry Pi · YOLO (thời gian tính cho toàn ảnh)' : target.value === 'esp32' ? 'ESP32' : 'backend tham chiếu'}.` : 'Có ô chưa xác định do lỗi suy luận hoặc xe sát ranh giới ROI. Xem lý do tại từng ô.';
         return;
       }
       el('prediction-result').classList.add(data.label === 1 ? 'is-occupied' : 'is-vacant');

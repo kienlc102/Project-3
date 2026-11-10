@@ -70,7 +70,11 @@ export function useParkingDashboard() {
       if (version !== generation.current) return;
       setStatus(s);
       setCamera(r.camera);
-      setTarget(s.execution_targets.includes("esp32") ? "esp32" : "backend");
+      setTarget((previous) =>
+        s.execution_targets.includes(previous)
+          ? previous
+          : s.default_target || s.execution_targets[0] || "esp32",
+      );
     } catch (e) {
       if (version === generation.current) {
         setError((e as Error).message);

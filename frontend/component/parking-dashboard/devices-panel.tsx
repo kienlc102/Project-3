@@ -67,7 +67,18 @@ export function DevicesPanel({
             name: "Camera cố định",
             state: currentCamera ? "Đã cấu hình ROI" : "Chưa cấu hình",
             detail: currentCamera?.camera_id || "Cấu hình camera trên backend",
-            sub: `${slots.length} vùng nhận diện · HTTP snapshot`,
+            sub: `${slots.length} vùng nhận diện · ${currentCamera?.use_picamera2 ? "Camera CSI" : currentCamera?.capture_device != null ? "Camera USB" : "HTTP snapshot"}`,
+          },
+          {
+            icon: "grid",
+            name: "Raspberry Pi · camera",
+            state: currentStatus?.execution_targets.includes("raspberry_pi")
+              ? "Đã bật"
+              : "Chưa cấu hình",
+            detail:
+              currentStatus?.vision?.model ||
+              "Nhận diện xe bằng YOLO pretrained",
+            sub: "Chỉ dùng camera · Không cần cảm biến khoảng cách",
           },
           {
             icon: "signal",
@@ -103,7 +114,11 @@ export function DevicesPanel({
           >
             {(currentStatus?.execution_targets || ["esp32"]).map((t) => (
               <option key={t} value={t}>
-                {t === "esp32" ? "ESP32 · INT8" : "Backend · tham chiếu"}
+                {t === "esp32"
+                  ? "ESP32 · INT8"
+                  : t === "raspberry_pi"
+                    ? "Raspberry Pi · Camera + YOLO"
+                    : "Backend · tham chiếu"}
               </option>
             ))}
           </select>
@@ -124,9 +139,9 @@ export function DevicesPanel({
       <div className="info-note">
         <Icon name="info" />
         <p>
-          Kết quả hiện tại là nhận diện CNN từ ảnh. Dữ liệu cảm biến khoảng
-          cách, biển số, doanh thu và kết quả kết hợp cảm biến chưa được backend
-          cung cấp.
+          {target === "raspberry_pi"
+            ? "YOLO nhận diện xe trên toàn ảnh và đối chiếu với vùng từng ô. Xe sát ranh giới có thể được đánh dấu chưa xác định. Cần hiệu chỉnh ROI theo camera thực tế."
+            : "Kết quả hiện tại là nhận diện CNN từ ảnh. Backend chưa cung cấp dữ liệu cảm biến khoảng cách và kết quả kết hợp cảm biến."}
         </p>
       </div>
     </section>

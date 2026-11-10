@@ -1,4 +1,6 @@
 .venv/
+.venv-vision/
+.venv-*/
 .env
 .tmp-parkly*/
 __pycache__/
@@ -9,4 +11,11 @@ ai_model/raw_data/
 ai_model/dataset/
 ai_model/output/
 config/parking.json
+config/parking-pi.json
 test_image/
+*.pt
+*_ncnn_model/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log

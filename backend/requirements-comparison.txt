@@ -1,0 +1,3 @@
+# Run both image APIs on the same PC backend, without ESP32 or Raspberry Pi hardware.
+-r requirements-reference.txt
+-r requirements-vision.txt

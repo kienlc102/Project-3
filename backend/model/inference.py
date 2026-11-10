@@ -10,6 +10,11 @@ import threading
 import time
 import warnings
 import uuid
+from PIL import Image, ImageOps
+
+# Keep the upload decoder independent of optional libraries that patch Image.open
+# (Ultralytics can attempt a HEIF dependency install on unrecognized input).
+_open_image = Image.open
 
 
 
@@ -17,11 +22,10 @@ from backend.config.settings import MAX_UPLOAD_BYTES
 
 
 def read_frame(data):
-    from PIL import Image, ImageOps
     Image.MAX_IMAGE_PIXELS = 20_000_000
     with warnings.catch_warnings():
         warnings.simplefilter("error", Image.DecompressionBombWarning)
-        with Image.open(BytesIO(data)) as image:
+        with _open_image(BytesIO(data), formats=["JPEG", "PNG", "WEBP", "BMP"]) as image:
             if image.format not in {"JPEG", "PNG", "WEBP", "BMP"}:
                 raise ValueError("Only JPG, PNG, WebP and BMP are supported")
             return ImageOps.exif_transpose(image).copy()

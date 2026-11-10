@@ -1,0 +1,12 @@
+{
+  "camera_id": "pi_camera_01",
+  "reference_width": 1280,
+  "reference_height": 720,
+  "capture_device": 0,
+  "use_picamera2": false,
+  "slots": [
+    {"id": "A-01", "x": 100, "y": 220, "width": 220, "height": 360},
+    {"id": "A-02", "x": 360, "y": 220, "width": 220, "height": 360},
+    {"id": "A-03", "x": 620, "y": 220, "width": 220, "height": 360}
+  ]
+}

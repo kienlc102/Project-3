@@ -25,9 +25,14 @@ export function SystemSummary({
         },
         {
           icon: "signal",
-          title: "Node suy luận ESP32",
-          description: "Xác nhận kết nối qua suy luận",
-          okay: !!currentStatus?.execution_targets.includes("esp32"),
+          title: currentStatus?.vision
+            ? "Camera + Raspberry Pi"
+            : "Node suy luận ESP32",
+          description:
+            currentStatus?.vision?.model || "Xác nhận kết nối qua suy luận",
+          okay: !!currentStatus?.execution_targets.some((t) =>
+            ["esp32", "raspberry_pi"].includes(t),
+          ),
         },
         {
           icon: "grid",

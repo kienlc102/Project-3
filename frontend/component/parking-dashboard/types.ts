@@ -10,6 +10,8 @@ export type Camera = {
   reference_width: number;
   reference_height: number;
   slots: Slot[];
+  capture_device?: number | null;
+  use_picamera2?: boolean;
 };
 export type Status = {
   ready: boolean;
@@ -19,6 +21,13 @@ export type Status = {
   execution_targets: string[];
   camera_configured: boolean;
   roi_count: number;
+  default_target?: string;
+  vision?: {
+    model: string;
+    confidence: number;
+    overlap: number;
+    image_size: number;
+  };
 };
 export type Result = {
   slot_id: string;
@@ -27,6 +36,9 @@ export type Result = {
   car_score?: number;
   latency_ms?: number;
   error?: string;
+  threshold?: number;
+  slot_coverage?: number;
+  overlap_threshold?: number;
 };
 export type Frame = {
   camera_id: string;

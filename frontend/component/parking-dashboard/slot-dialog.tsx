@@ -61,18 +61,39 @@ export function SlotDialog({
             {[
               ["Nguồn dữ liệu", demo ? "Minh họa" : target || "Chưa kiểm tra"],
               [
-                "Điểm nhận diện xe",
+                target === "raspberry_pi"
+                  ? "Độ tin cậy phát hiện xe"
+                  : "Điểm nhận diện xe",
                 result.car_score !== undefined
                   ? `${(result.car_score * 100).toFixed(1)}%`
                   : "—",
               ],
               [
-                "Thời gian suy luận",
+                target === "raspberry_pi"
+                  ? "Thời gian xử lý toàn ảnh"
+                  : "Thời gian suy luận",
                 result.latency_ms !== undefined
                   ? `${result.latency_ms} ms`
                   : "—",
               ],
-              ["Ngưỡng phân loại", threshold ?? "—"],
+              [
+                target === "raspberry_pi"
+                  ? "Ngưỡng phát hiện"
+                  : "Ngưỡng phân loại",
+                result.threshold ?? threshold ?? "—",
+              ],
+              ...(target === "raspberry_pi"
+                ? [
+                    [
+                      "Phần ô được xe che phủ",
+                      `${((result.slot_coverage ?? 0) * 100).toFixed(1)}%`,
+                    ],
+                    [
+                      "Ngưỡng che phủ",
+                      `${((result.overlap_threshold ?? 0) * 100).toFixed(1)}%`,
+                    ],
+                  ]
+                : []),
             ].map(([k, v]) => (
               <div key={k}>
                 <dt>{k}</dt>
@@ -84,6 +105,8 @@ export function SlotDialog({
           <p className="muted">
             Kết quả từ ảnh phản ánh thời điểm kiểm tra, không phải trạng thái
             được xác nhận liên tục.
+            {target === "raspberry_pi" &&
+              " Điểm 0 chỉ có nghĩa chưa phát hiện xe, không phải độ chắc chắn ô trống."}
           </p>
         </div>
       </section>

@@ -1,3 +1,5 @@
+name: smart-parking
+
 services:
   frontend:
     build:
@@ -26,6 +28,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    environment:
+      YOLO_CONFIG_DIR: /tmp/ultralytics
+      YOLO_AUTOINSTALL: "false"
+      MPLCONFIGDIR: /tmp/matplotlib
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command:
@@ -36,6 +42,23 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+      - --model-dir
+      - /app/ai_model/output/run_gpu01
+      - --enable-reference
+      - --vision-model
+      - "${VISION_MODEL:-parking-car}"
+      - --vision-confidence
+      - "${VISION_CONFIDENCE:-0.75}"
+      - --vision-overlap
+      - "${VISION_OVERLAP:-0.25}"
+      - --vision-image-size
+      - "${VISION_IMAGE_SIZE:-640}"
+      - --vision-rotations
+      - "${VISION_ROTATIONS:-0,90,180,270}"
+      - --vision-edge-margin
+      - "${VISION_EDGE_MARGIN:-1}"
+      - --roi-config
+      - "${ROI_CONFIG:-/app/config/parking.json}"
       - --esp32-url
       - "${ESP32_URL:-}"
     volumes:
@@ -46,20 +69,28 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ./config
+        source: ${VISION_MODEL_DIR:-./ai_model/output/vision}
+        target: /app/ai_model/output/vision
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CONFIG_DIR:-./config}
         target: /app/config
         read_only: true
         bind:
           create_host_path: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).close()"
+        - "import json, urllib.request; r = json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)); assert r['gateway_ready'] and r['vision_configured']"
       interval: 30s
       timeout: 10s
-      start_period: 60s
+      start_period: 120s
       retries: 3
     init: true
     restart: unless-stopped

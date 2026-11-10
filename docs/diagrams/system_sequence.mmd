@@ -41,6 +41,6 @@ sequenceDiagram
         Note over API,ESP32: Ô lỗi thành unknown, không tự chạy thay trên CPU
     end
 
-    API-->>UI: Frame, results, counts và complete; hoặc lỗi request
+    API-->>UI: Frame, results, counts và complete hoặc lỗi request
     UI-->>User: Sơ đồ ô đỗ và lịch sử trong phiên
     Note over User,API: Test ảnh qua /api/detect/yolo hoặc /api/detect/tinyml không cần ROI

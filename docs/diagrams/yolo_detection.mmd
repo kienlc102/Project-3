@@ -1,0 +1,24 @@
+flowchart TD
+    Input["Ảnh upload hoặc frame camera"] --> Decode["Kiểm tra ảnh và hướng EXIF<br/>JPG / PNG / WebP / BMP, tối đa 10 MB"]
+    Decode --> Views["Tạo các hướng 0 / 90 / 180 / 270 độ"]
+    Views --> Detect["YOLO trên từng hướng<br/>Ngưỡng ứng viên = min(confidence cuối, 0.35)"]
+    Detect --> Restore["Đưa bounding box về tọa độ ảnh gốc"]
+    Restore --> Group["Gộp box cùng vật thể<br/>IoU từ 0.5, không phụ thuộc nhãn"]
+    Group --> Vote["Bỏ phiếu nhãn bằng tổng confidence<br/>Mỗi lớp tối đa một phiếu trong mỗi hướng"]
+    Vote --> ClassCheck{"Lớp thắng là car,<br/>không hòa phiếu và được<br/>ít nhất 2 hướng hỗ trợ?"}
+    ClassCheck -->|"Không"| Rejected["Loại khỏi kết quả đếm ô tô<br/>Giữ thông tin chẩn đoán khi debug=true"]
+    ClassCheck -->|"Có"| Score{"Điểm model cao nhất<br/>của lớp thắng đạt ngưỡng cuối?<br/>Mặc định 0.75"}
+    Score -->|"Không"| Rejected
+    Score -->|"Có"| Mode{"Loại API?"}
+    Mode -->|"/api/detect/yolo"| Border{"Box cách mép ảnh<br/>hơn VISION_EDGE_MARGIN?<br/>Mặc định 1 pixel"}
+    Border -->|"Không"| Rejected
+    Border -->|"Có hoặc margin=0"| Count["detections và vehicle_count<br/>Tọa độ trên ảnh gốc"]
+    Mode -->|"predict-frame / predict-camera<br/>target=raspberry_pi"| Coverage["Đối chiếu với từng ROI<br/>Coverage = diện tích giao / diện tích ROI<br/>Không áp dụng bộ lọc mép ảnh"]
+    Coverage --> Occupancy["Coverage từ 0.25: occupied<br/>Từ 0.125 đến dưới 0.25: unknown<br/>Dưới 0.125: vacant"]
+    Occupancy --> Slots["results và counts theo ô đỗ"]
+    Rejected -.-> Debug["debug: view_detections, raw_detections,<br/>rejected_detections và lý do lọc"]
+
+    classDef decision fill:#fefce8,stroke:#a16207,color:#713f12;
+    classDef result fill:#f0fdf4,stroke:#15803d,color:#14532d;
+    class ClassCheck,Score,Mode,Border decision;
+    class Count,Slots result;

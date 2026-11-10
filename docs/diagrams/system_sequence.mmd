@@ -1,27 +1,46 @@
 sequenceDiagram
-    actor Operator as Người vận hành
-    participant Gateway as Web và FastAPI Gateway
-    participant Camera as Camera góc rộng
-    participant ESP32 as ESP32 CNN và fusion
-    participant Sensor as Cảm biến khoảng cách theo ô
-    Operator->>Gateway: Kiểm tra bãi xe với ROI và ánh xạ cảm biến
-    Gateway->>Camera: Lấy frame mới
-    Camera-->>Gateway: Frame toàn cảnh
-    loop Từng ô theo slot_id
-        Note over Gateway: Crop ROI, grayscale và resize 64x64
-        Gateway->>ESP32: Tensor 4096 byte, slot_id, request_id, model hash, threshold
-        ESP32->>Sensor: Đọc cảm biến đúng ô, lọc và xác nhận trạng thái
-        Sensor-->>ESP32: Khoảng cách hoặc lỗi đo
-        Note over ESP32: Chạy CNN INT8 và kiểm tra độ mới hai nguồn
-        alt Hai nguồn hợp lệ và cùng xác nhận có xe
-            ESP32-->>Gateway: occupied, label 1 và bằng chứng hai nguồn
-        else Hai nguồn hợp lệ và cùng xác nhận trống
-            ESP32-->>Gateway: vacant, label 0 và bằng chứng hai nguồn
-        else Mâu thuẫn, thiếu dữ liệu hoặc quá hạn
-            ESP32-->>Gateway: unknown, label null và lý do
-        else ESP32 mất kết nối hoặc phản hồi không hợp lệ
-            Note over Gateway: Đánh dấu UNKNOWN, không suy ra ô trống
-        end
+    actor User as Người dùng
+    participant UI as Dashboard Next.js
+    participant API as FastAPI
+    participant Camera as Camera tùy chọn
+    participant YOLO as YOLO và bỏ phiếu
+    participant CNN as CNN tham chiếu
+    participant ESP32 as ESP32 tùy chọn
+
+    User->>UI: Kết nối hệ thống thật
+    UI->>API: GET /api/status và /api/rois qua /gateway/*
+    API-->>UI: Target đang bật và cấu hình ROI
+    User->>UI: Chọn target, upload frame hoặc kiểm tra camera
+    UI->>API: POST /api/predict-frame hoặc /api/predict-camera
+    Note over UI,API: Luồng này cần ROI đã hiệu chỉnh
+
+    opt Request lấy ảnh camera
+        API->>Camera: HTTP snapshot hoặc đọc USB/CSI
+        Camera-->>API: Frame mới hoặc lỗi lấy ảnh
     end
-    Gateway-->>Operator: Trạng thái cuối từng ô và thông tin CNN/khoảng cách
-    Note over Operator,Gateway: Upload ảnh cũ chỉ test CNN, không ghép với khoảng cách hiện tại
+
+    alt target=raspberry_pi
+        API->>YOLO: Frame toàn cảnh và cấu hình model
+        loop Mỗi hướng đã cấu hình, mặc định 4 hướng
+            YOLO->>YOLO: Detect và đưa box về tọa độ ảnh gốc
+        end
+        YOLO->>YOLO: Gộp box, bỏ phiếu nhãn, chọn car đủ confidence và hỗ trợ
+        YOLO->>YOLO: Đối chiếu box với ROI từng ô
+        YOLO-->>API: Trạng thái từng ô và counts
+    else target=backend
+        loop Từng ROI
+            API->>CNN: Crop, grayscale 64x64, chạy INT8 hoặc Float32
+            CNN-->>API: Nhãn và điểm CNN của ô
+        end
+    else target=esp32
+        loop Từng ROI
+            API->>ESP32: POST /infer, 4096 byte và hash, threshold, request_id, slot_id
+            ESP32-->>API: Nhãn INT8, điểm CNN và thời gian suy luận
+            API->>API: Kiểm tra hash và thông tin phản hồi
+        end
+        Note over API,ESP32: Ô lỗi thành unknown, không tự chạy thay trên CPU
+    end
+
+    API-->>UI: Frame, results, counts và complete; hoặc lỗi request
+    UI-->>User: Sơ đồ ô đỗ và lịch sử trong phiên
+    Note over User,API: Test ảnh qua /api/detect/yolo hoặc /api/detect/tinyml không cần ROI

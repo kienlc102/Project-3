@@ -1,13 +1,38 @@
-flowchart LR
-    Camera[Camera góc rộng cố định] -->|Frame mới| Gateway[FastAPI Gateway]
-    Config[Cấu hình ROI và ánh xạ slot_id] --> Gateway
-    Gateway --> ROI[Crop ROI và grayscale 64x64]
-    ROI -->|4096 byte mỗi ô và metadata| CNN[CNN INT8 trên ESP32 thường]
-    Sensors[Cảm biến khoảng cách riêng cho từng ô] --> Filter[Lọc mẫu và hysteresis trên ESP32]
-    CNN --> Fusion[Fusion trên ESP32: kiểm tra độ mới và đồng thuận]
-    Filter --> Fusion
-    Fusion -->|Nhãn cuối 1/0/unknown và bằng chứng hai nguồn| Gateway
-    Gateway --> Web[Dashboard từng ô]
-    Train[Train và đánh giá trên PC/GPU] --> Export[Model INT8 và header C]
-    Export --> CNN
-    Export -. test ảnh độc lập .-> Reference[Backend tham chiếu CNN]
+flowchart TB
+    Browser["Trình duyệt"]
+
+    subgraph Compose["Docker Compose"]
+        Frontend["frontend<br/>Next.js :3000"]
+        subgraph Backend["backend - FastAPI :8000"]
+            API["API /api/*<br/>Trang test ảnh / và Swagger /docs"]
+            Preprocess["Nhánh CNN<br/>Crop ROI nếu cần, ảnh xám 64x64"]
+            Reference["CNN tham chiếu trên CPU<br/>INT8 / Float32"]
+            Vision["YOLO trên CPU<br/>4 hướng, gộp box, bỏ phiếu nhãn"]
+            Count["Đếm ô tô toàn ảnh<br/>Lọc confidence và box chạm mép"]
+            Slots["Đối chiếu box với ROI<br/>occupied / vacant / unknown"]
+            API -->|"TinyML / target=backend hoặc esp32"| Preprocess
+            Preprocess --> Reference
+            Reference -->|"Nhãn và điểm CNN"| API
+            API -->|"YOLO / target=raspberry_pi"| Vision
+            Vision -->|"/api/detect/yolo"| Count
+            Vision -->|"/api/predict-frame hoặc predict-camera"| Slots
+            Count -->|"vehicle_count và detections"| API
+            Slots -->|"counts và results theo ô"| API
+        end
+        Frontend <-->|"/gateway/* tới /api/*<br/>http://backend:8000"| API
+    end
+
+    Browser <-->|"HTTP :3000"| Frontend
+    Browser <-->|"Test ảnh / Swagger :8000"| API
+    Camera["Camera tùy chọn<br/>HTTP snapshot / USB / CSI"] <-->|"Lấy ảnh khi có yêu cầu"| API
+    ESP32["ESP32 tùy chọn<br/>CNN INT8 trên board"]
+    Preprocess -->|"HTTP /infer<br/>4096 byte và metadata, hash"| ESP32
+    ESP32 -->|"Điểm CNN, nhãn, thời gian suy luận"| API
+    Config["config/parking.json<br/>Nguồn camera và ROI"] -.-> API
+    Models["ai_model/output/<br/>Weights mount chỉ đọc"] -.-> Reference
+    Models -.-> Vision
+
+    classDef external fill:#fff7ed,stroke:#c2410c,color:#7c2d12;
+    classDef inference fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    class Camera,ESP32 external;
+    class Reference,Vision inference;

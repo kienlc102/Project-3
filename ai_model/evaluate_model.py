@@ -76,7 +76,7 @@ def main():
 
     import numpy as np
     import tensorflow as tf
-    from dataset_io import load_dataset, preprocess_image, image_hashes, reject_overlap
+    from ai_model.dataset_io import load_dataset, preprocess_image, image_hashes, reject_overlap
 
     if args.image:
         images = preprocess_image(args.image)[np.newaxis, ...]

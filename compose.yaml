@@ -32,6 +32,8 @@ services:
       YOLO_CONFIG_DIR: /tmp/ultralytics
       YOLO_AUTOINSTALL: "false"
       MPLCONFIGDIR: /tmp/matplotlib
+      ESP32_DISCOVERY_SUBNETS: "${ESP32_DISCOVERY_SUBNETS:-auto}"
+      ESP32_HOST_NETWORK_FILE: /app/runtime/host-network.json
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command:
@@ -43,7 +45,9 @@ services:
       - --port
       - "8000"
       - --model-dir
-      - /app/ai_model/output/run_gpu01
+      - "${CNN_MODEL_PATH:-/app/ai_model/output/run_gpu01}"
+      - --threshold
+      - "${CNN_THRESHOLD:-0.60}"
       - --enable-reference
       - --vision-model
       - "${VISION_MODEL:-parking-car}"
@@ -60,11 +64,15 @@ services:
       - --roi-config
       - "${ROI_CONFIG:-/app/config/parking.json}"
       - --esp32-url
-      - "${ESP32_URL:-}"
+      - "${ESP32_URL:-auto}"
     volumes:
       - type: bind
+        source: ./.runtime
+        target: /app/runtime
+        read_only: true
+      - type: bind
         source: ${MODEL_DIR:-./ai_model/output/run_gpu01}
-        target: /app/ai_model/output/run_gpu01
+        target: ${CNN_MODEL_PATH:-/app/ai_model/output/run_gpu01}
         read_only: true
         bind:
           create_host_path: false

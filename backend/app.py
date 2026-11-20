@@ -2,6 +2,7 @@
 import argparse
 from contextlib import asynccontextmanager
 import logging
+import os
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -31,9 +32,16 @@ def create_app(model_dir=None, threshold=None, esp32_url=None, roi_config=None, 
         app.state.camera = load_config(roi_config)
         logging.getLogger("uvicorn.error").info("Inference enabled: CNN=%s, vision=%s",
             app.state.predictor is not None, app.state.vision is not None)
-        yield
-        app.state.predictor = None
-        app.state.vision = None
+        device = app.state.predictor.device if app.state.predictor else None
+        if device and app.state.predictor.model_sha256:
+            device.start_discovery(app.state.predictor.model_sha256)
+        try:
+            yield
+        finally:
+            if device:
+                device.close()
+            app.state.predictor = None
+            app.state.vision = None
 
     service = FastAPI(title="Wide-angle Parking Gateway", version="2.0.0",
                       description="ESP32 INT8, backend reference tests, or camera-only YOLO inference on Raspberry Pi.",
@@ -55,7 +63,8 @@ def main():
     parser.add_argument("--threshold", type=float, help="Override validation threshold (fallback: 0.75)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--esp32-url", help="Example: http://192.168.1.50")
+    parser.add_argument("--esp32-url", default=os.environ.get("ESP32_URL", "auto"),
+                        help="auto for LAN discovery (default), or http://192.168.1.50; empty disables ESP32")
     parser.add_argument("--roi-config", type=Path, default=DEFAULT_ROI_CONFIG)
     parser.add_argument("--enable-reference", action="store_true", help="Load CNN on the backend, including alongside YOLO or ESP32, for image API tests")
     parser.add_argument("--vision-model", type=Path, help="Use parking-car for the overhead car detector, or a local .pt file / NCNN directory")

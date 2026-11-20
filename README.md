@@ -1,5 +1,60 @@
 # Smart Parking
 
+## Tự tìm ESP32 trong LAN
+
+Nạp firmware mới từ `firmware_esp32/car-detection/src/main.cpp`. Board quảng bá
+dịch vụ mDNS `_parkly._tcp.local.` bằng hostname riêng theo MAC. Chế độ
+`ESP32_URL=auto` chạy discovery trong backend ngay khi khởi động và kiểm tra
+kết nối mỗi 10 giây. Backend xác minh `/health` và hash model, tìm lại khi IP
+đổi, đồng thời thử tìm lại và gửi lại một lần nếu request suy luận lỗi. Nếu nhiều
+board có cùng model, dùng URL cụ thể để chọn board. `/api/status` có trường
+`esp32.mode` và `esp32.url`; URL là `null` trước khi tìm thấy board.
+
+Với backend chạy trực tiếp trên PC cùng LAN:
+
+```powershell
+.\.venv-vision\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\.venv-vision\Scripts\python.exe -m backend.app --esp32-url auto --threshold 0.60
+```
+
+Với Docker Desktop trên Windows, container không nhìn thấy trực tiếp card Wi-Fi
+của host. Dùng lệnh khởi động chung dưới đây để tự đọc IP/prefix thật của host,
+khởi động Compose, và cập nhật thông tin mạng mỗi 10 giây trong khi chạy. Không
+cần nhập IP/subnet hoặc mở một HTTP discovery service riêng:
+
+```powershell
+.\scripts\start-system.ps1
+# Chỉ chạy backend:
+.\scripts\start-system.ps1 -BackendOnly
+# Chỉ theo dõi LAN khi container đã chạy, không gọi Docker hoặc build:
+.\scripts\start-system.ps1 -NetworkOnly
+# Khởi động container dùng image hiện có, không yêu cầu build:
+.\scripts\start-system.ps1 -NoBuild
+```
+
+Giữ terminal này mở. Khi đổi Wi-Fi, backend đọc lại thông tin mạng mới từ file
+`.runtime/host-network.json` được mount read-only; không sử dụng IP NAT của
+container làm IP LAN host. Ctrl+C dừng cập nhật mạng, container vẫn chạy; metadata
+quá 45 giây sẽ bị từ chối thay vì âm thầm dò mạng cũ. Chạy lại launcher với
+`-NoBuild` để tiếp tục cập nhật mà không build lại. Trong `.env`:
+
+```dotenv
+ESP32_URL=auto
+ESP32_DISCOVERY_SUBNETS=auto
+```
+
+Backend chạy trực tiếp dùng `psutil` để đọc card mạng đang hoạt động; launcher
+chỉ cần cho Docker Desktop Windows. Backend ưu tiên mDNS rồi dò HTTP theo
+subnet thật của host khi multicast bị chặn. Không giả định subnet luôn là /24.
+Vẫn có thể đặt CIDR cụ thể nếu cần override. Quá trình dò giới hạn tối đa
+1024 địa chỉ private IPv4 (/22 hoặc subnet nhỏ hơn); mạng lớn hơn cần mDNS hoặc
+override phạm vi dò nhỏ hơn. Quá trình dò giới hạn
+32 kết nối song song và chỉ chọn board có đúng loại thiết bị, model và trạng
+thái sẵn sàng. Khi board offline, backend vẫn khởi động và tiếp tục thử lại;
+request cần ESP32 sẽ báo lỗi/unknown, không tự thay bằng suy luận CPU.
+LAN phải cho phép kết nối giữa các thiết bị (không bật AP/client isolation).
+`/api/status` hiển thị `esp32.discovery_error` nếu chưa tìm được board.
+
 Project cá nhân giám sát bãi đỗ xe bằng FastAPI, Next.js, CNN TinyML và YOLO.
 Hệ thống có hai cách xử lý ảnh:
 

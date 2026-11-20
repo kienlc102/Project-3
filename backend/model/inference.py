@@ -92,6 +92,9 @@ class ParkingPredictor:
         return {"ready": True, "run": self.model_dir.name, "models": self.available_models,
                 "threshold": self.threshold, "threshold_source": self.threshold_source,
                 "max_upload_bytes": MAX_UPLOAD_BYTES,
+                "esp32": ({"mode": "auto" if self.device.auto else "manual", "url": self.device.base_url,
+                           "discovery_error": self.device.last_discovery_error}
+                          if self.device else None),
                 "execution_targets": (["backend"] if self.reference_models else []) + (["esp32"] if self.device and self.model_sha256 else [])}
 
     def predict(self, data, model_type, target="backend"):

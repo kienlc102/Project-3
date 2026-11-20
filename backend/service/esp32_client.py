@@ -2,6 +2,9 @@
 
 import json
 import math
+import logging
+import threading
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -13,12 +16,76 @@ class DeviceError(RuntimeError):
 
 class Esp32Client:
     def __init__(self, base_url, timeout=10):
-        parsed = urlsplit(base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+        self.auto = base_url == "auto"
+        parsed = urlsplit(base_url) if not self.auto else None
+        if parsed and (parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment):
             raise ValueError("ESP32 URL must be an HTTP(S) base URL")
-        self.base_url, self.timeout = base_url.rstrip("/"), timeout
+        self.base_url, self.timeout = (None if self.auto else base_url.rstrip("/")), timeout
+        self.lock = threading.Lock()
+        self.discovered_at = 0
+        self.stop_discovery = threading.Event()
+        self.discovery_thread = None
+        self.last_discovery_error = None
+
+    def start_discovery(self, model_sha256):
+        if not self.auto or self.discovery_thread:
+            return
+        self.stop_discovery.clear()
+
+        def monitor():
+            from backend.service.esp32_discovery import check_device, discover_device, DiscoveryError
+            while not self.stop_discovery.is_set():
+                # One owner of discovery/inference at a time; no races with a changed IP.
+                if self.lock.acquire(timeout=1):
+                    try:
+                        if not self.base_url or not check_device(self.base_url, model_sha256):
+                            self.base_url = None
+                            self.base_url = discover_device(model_sha256)
+                            logging.getLogger("uvicorn.error").info("ESP32 discovered: %s", self.base_url)
+                        self.discovered_at = time.monotonic()
+                        self.last_discovery_error = None
+                    except DiscoveryError as error:
+                        message = str(error)
+                        if self.last_discovery_error != message:
+                            logging.getLogger("uvicorn.error").warning("ESP32 discovery: %s", message)
+                        self.last_discovery_error = message
+                    finally:
+                        self.lock.release()
+                self.stop_discovery.wait(10)
+
+        self.discovery_thread = threading.Thread(target=monitor, name="esp32-discovery", daemon=True)
+        self.discovery_thread.start()
+
+    def close(self):
+        self.stop_discovery.set()
+        if self.discovery_thread:
+            self.discovery_thread.join(timeout=20)
 
     def predict(self, pixels, threshold, model_sha256, request_id, slot_id):
+        from backend.service.esp32_discovery import discover_device, DiscoveryError
+        with self.lock:
+            for attempt in range(2 if self.auto else 1):
+                try:
+                    if self.auto and (not self.base_url or time.monotonic() - self.discovered_at > 60):
+                        from backend.service.esp32_discovery import check_device
+                        if not self.base_url or not check_device(self.base_url, model_sha256):
+                            self.base_url = None
+                            self.base_url = discover_device(model_sha256)
+                        self.discovered_at = time.monotonic()
+                        self.last_discovery_error = None
+                        logging.getLogger("uvicorn.error").info("ESP32 discovered: %s", self.base_url)
+                    return self._predict(pixels, threshold, model_sha256, request_id, slot_id)
+                except DiscoveryError as error:
+                    self.base_url = None
+                    raise DeviceError(str(error)) from error
+                except DeviceError:
+                    if not self.auto:
+                        raise
+                    self.base_url = None
+                    if attempt:
+                        raise
+
+    def _predict(self, pixels, threshold, model_sha256, request_id, slot_id):
         data = pixels.tobytes()
         if pixels.shape != (64, 64, 1) or len(data) != 4096 or str(pixels.dtype) != "uint8":
             raise ValueError("ESP32 input must be uint8 64x64x1")

@@ -4,6 +4,10 @@ import { ParkingSlot } from "./parking-slot";
 import type { DashboardState } from "./use-parking-dashboard";
 type Props = Pick<
   DashboardState,
+  | "layout"
+  | "setLayout"
+  | "columns"
+  | "setColumns"
   | "view"
   | "setView"
   | "demo"
@@ -18,6 +22,10 @@ type Props = Pick<
   | "refresh"
 >;
 export function ParkingMap({
+  layout,
+  setLayout,
+  columns,
+  setColumns,
   view,
   setView,
   demo,
@@ -77,49 +85,81 @@ export function ParkingMap({
         </div>
         <span>Chọn ô để xem chi tiết</span>
       </div>
-      <div className="parking-map">
-        <div className="north">N ↑</div>
-        <div className="landscape">
-          <i />
-          <i />
-          <i />
-          <span>LỐI ĐI BỘ</span>
-          <i />
-          <i />
-          <i />
-        </div>
-        {slots.length ? (
-          <>
-            <div className="parking-row">
-              {results.slice(0, Math.ceil(results.length / 2)).map((r, i) => (
-                <ParkingSlot
-                  key={r.slot_id}
-                  result={r}
-                  index={i}
-                  onClick={() => setSelected(r)}
-                />
-              ))}
-            </div>
-            <div className="driving-lane">
-              <span>↑ VÀO</span>
-              <i />
-              <b>→</b>
-              <span>LỐI DI CHUYỂN</span>
-              <b>→</b>
-              <i />
-              <span>RA ↓</span>
-            </div>
-            <div className="parking-row lower">
-              {results.slice(Math.ceil(results.length / 2)).map((r, i) => (
-                <ParkingSlot
-                  key={r.slot_id}
-                  result={r}
-                  index={i + 12}
-                  onClick={() => setSelected(r)}
-                />
-              ))}
-            </div>
-          </>
+      <div className="layout-controls">
+        <label>
+          Bố cục mô phỏng
+          <select
+            value={layout}
+            onChange={(e) => setLayout(e.target.value as "roi" | "grid")}
+          >
+            <option value="roi">Theo tọa độ ROI</option>
+            <option value="grid">Lưới ô đỗ</option>
+          </select>
+        </label>
+        {layout === "grid" && (
+          <label>
+            Số cột
+            <input
+              type="number"
+              min={2}
+              max={12}
+              value={columns}
+              onChange={(e) =>
+                setColumns(
+                  Math.max(2, Math.min(12, Number(e.target.value) || 2)),
+                )
+              }
+            />
+          </label>
+        )}
+        <span>
+          {currentCamera
+            ? `${currentCamera.camera_id} · ${currentCamera.reference_width} × ${currentCamera.reference_height}`
+            : "Đang chờ ROI backend"}
+        </span>
+      </div>
+      <div className="parking-map roi-map-scroll">
+        {slots.length && currentCamera ? (
+          <div
+            className={layout === "roi" ? "roi-simulation" : "simulation-grid"}
+            style={
+              layout === "roi"
+                ? {
+                    aspectRatio: `${currentCamera.reference_width} / ${currentCamera.reference_height}`,
+                  }
+                : {
+                    gridTemplateColumns: `repeat(${columns}, minmax(55px, 1fr))`,
+                  }
+            }
+          >
+            {slots.map((slot, index) => {
+              const result = results.find((r) => r.slot_id === slot.id)!;
+              return (
+                <div
+                  key={slot.id}
+                  className={
+                    layout === "roi" ? "roi-position" : "grid-position"
+                  }
+                  style={
+                    layout === "roi"
+                      ? {
+                          left: `${(slot.x / currentCamera.reference_width) * 100}%`,
+                          top: `${(slot.y / currentCamera.reference_height) * 100}%`,
+                          width: `${(slot.width / currentCamera.reference_width) * 100}%`,
+                          height: `${(slot.height / currentCamera.reference_height) * 100}%`,
+                        }
+                      : undefined
+                  }
+                >
+                  <ParkingSlot
+                    result={result}
+                    index={index}
+                    onClick={() => setSelected(result)}
+                  />
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div className="empty-state">
             <Icon name="car" size={36} />
@@ -136,9 +176,13 @@ export function ParkingMap({
         <div className="map-bottom">
           <span>
             <i className="dot" />{" "}
-            {demo ? "Sơ đồ minh họa" : "Bố cục tổng hợp từ danh sách ROI"}
+            {demo ? "Sơ đồ minh họa" : "Đồng bộ ô đỗ từ ROI backend"}
           </span>
-          <span>Không theo tỷ lệ thực tế</span>
+          <span>
+            {layout === "roi"
+              ? "Vị trí theo ảnh tham chiếu"
+              : "Bố cục lưới tùy chỉnh"}
+          </span>
         </div>
       </div>
       <div className="panel-footer">

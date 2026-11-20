@@ -2,7 +2,8 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/gateway/${path}`, {
     ...options,
     cache: "no-store",
-    signal: AbortSignal.timeout(90000),
+    // A whole frame can require up to 100 sequential ESP32 predictions.
+    signal: AbortSignal.timeout(300000),
   });
   const body = await response.json().catch(() => null);
   if (!response.ok)

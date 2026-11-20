@@ -21,7 +21,7 @@ def convert_tflite_to_c_array(tflite_path, output_header_path, array_name="g_par
     size_bytes = len(bytes_data)
     size_kb = size_bytes / 1024.0
     
-    print(f"[CONVERT] Đang chuyển đổi {tflite_path} ({size_bytes} bytes ~ {size_kb:.2f} KB)...")
+    print(f"[CONVERT] {tflite_path} ({size_bytes} bytes ~ {size_kb:.2f} KB)...")
 
     header_content = []
     header_content.append("// ==========================================================================")
@@ -55,8 +55,8 @@ def convert_tflite_to_c_array(tflite_path, output_header_path, array_name="g_par
     with open(output_header_path, "w", encoding="utf-8") as f:
         f.write("\n".join(header_content))
         
-    print(f"[SUCCESS] Đã ghi ra file C array: {output_header_path}")
-    print(f" -> Kích thước mảng: {size_kb:.2f} KB. Cần kiểm tra RAM và độ trễ trên ESP32.")
+    print(f"[SUCCESS] C array written: {output_header_path}")
+    print(f" -> Model: {size_kb:.2f} KB. Verify RAM and latency on ESP32 hardware.")
     return size_bytes
 
 

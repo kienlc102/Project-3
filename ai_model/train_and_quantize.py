@@ -3,6 +3,8 @@
 import argparse
 import json
 import platform
+import hashlib
+import os
 from pathlib import Path
 
 
@@ -13,7 +15,8 @@ def configure_device(tf, device="auto"):
     if device == "cpu":
         tf.config.set_visible_devices([], "GPU")
         print("[DEVICE] CPU requested.")
-        return {"requested": device, "selected": "cpu", "name": platform.processor()}
+        # platform.processor() may block on Windows WMI; no system query is needed here.
+        return {"requested": device, "selected": "cpu", "name": os.environ.get("PROCESSOR_IDENTIFIER") or platform.machine()}
     gpus = tf.config.list_physical_devices("GPU")
     if not gpus:
         message = "TensorFlow cannot detect a CUDA GPU."
@@ -26,7 +29,7 @@ def configure_device(tf, device="auto"):
         if device == "gpu":
             raise RuntimeError(message + " GPU was required; training has not started.")
         print(f"[DEVICE] {message} Falling back to CPU (--device auto).")
-        return {"requested": device, "selected": "cpu", "name": platform.processor()}
+        return {"requested": device, "selected": "cpu", "name": os.environ.get("PROCESSOR_IDENTIFIER") or platform.machine()}
     # One GPU is sufficient for this model and the 4 GB RTX 3050 Ti.
     gpu = gpus[0]
     tf.config.set_visible_devices([gpu], "GPU")
@@ -59,19 +62,26 @@ def make_training_datasets(tf, X_train, y_train, X_val, y_val, batch_size, seed)
 
 
 def train_and_quantize(epochs=40, batch_size=32, dataset_dir="dataset", output_dir="output", seed=42,
-                       export_firmware=False, device="auto"):
+                       export_firmware=False, device="auto", initial_model=None, learning_rate=None,
+                       freeze_batchnorm=False):
     import numpy as np
     import tensorflow as tf
     device_info = configure_device(tf, device)
     tf.keras.mixed_precision.set_global_policy("float32")
-    from dataset_io import load_dataset, image_hashes, reject_overlap
-    from model import build_ultralight_parking_cnn
-    from tflite_to_c_array import convert_tflite_to_c_array
+    from ai_model.dataset_io import load_dataset, image_hashes, reject_overlap
+    from ai_model.model import build_ultralight_parking_cnn
+    from ai_model.tflite_to_c_array import convert_tflite_to_c_array
 
     if epochs < 1 or batch_size < 1:
         raise ValueError("epochs and batch_size must be positive")
     tf.keras.utils.set_random_seed(seed)
     dataset_dir, output_dir = Path(dataset_dir), Path(output_dir)
+    if initial_model and (output_dir.resolve() == Path(initial_model).resolve().parent or
+                          output_dir.resolve() in Path(initial_model).resolve().parents):
+        raise ValueError("Fine-tuning output must be separate from the original model directory")
+    learning_rate = learning_rate if learning_rate is not None else (1e-4 if initial_model else 1e-3)
+    if not 0 < learning_rate <= 1:
+        raise ValueError("learning_rate must be in (0, 1]")
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError(f"Output directory is not empty: {output_dir}. Use a new run directory.")
     X_train, y_train, train_paths = load_dataset(dataset_dir / "train")
@@ -91,10 +101,20 @@ def train_and_quantize(epochs=40, batch_size=32, dataset_dir="dataset", output_d
         "dataset_dir": str(dataset_dir.resolve()), "tensorflow": tf.__version__,
         "numpy": np.__version__, "train_images": len(X_train), "val_images": len(X_val),
         "device": device_info,
+        "initial_model": str(Path(initial_model).resolve()) if initial_model else None,
+        "initial_model_sha256": hashlib.sha256(Path(initial_model).read_bytes()).hexdigest() if initial_model else None,
+        "learning_rate": learning_rate, "freeze_batchnorm": freeze_batchnorm,
     }, indent=2), encoding="utf-8")
 
-    model = build_ultralight_parking_cnn()
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+    model = (tf.keras.models.load_model(initial_model, compile=False)
+             if initial_model else build_ultralight_parking_cnn())
+    if tuple(model.input_shape[1:]) != (64, 64, 1) or model.output_shape[-1] != 1:
+        raise ValueError("Fine-tuning requires the existing 64x64 grayscale binary classifier")
+    if freeze_batchnorm:
+        for layer in model.layers:
+            if isinstance(layer, tf.keras.layers.BatchNormalization):
+                layer.trainable = False
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
                   loss="binary_crossentropy", metrics=["accuracy", tf.keras.metrics.AUC(name="auc")],
                   jit_compile=False)
     model.summary()
@@ -106,7 +126,7 @@ def train_and_quantize(epochs=40, batch_size=32, dataset_dir="dataset", output_d
                                            monitor="val_loss", save_best_only=True),
     ]
     train_dataset, val_dataset = make_training_datasets(tf, X_train, y_train, X_val, y_val, batch_size, seed)
-    model.fit(train_dataset, validation_data=val_dataset, epochs=epochs, callbacks=callbacks, shuffle=False, verbose=1)
+    model.fit(train_dataset, validation_data=val_dataset, epochs=epochs, callbacks=callbacks, shuffle=False, verbose=2)
     # Reload the persisted best epoch, including when training reaches the epoch limit.
     model = tf.keras.models.load_model(output_dir / "parking_cnn.keras")
     val_metrics = model.evaluate(val_dataset, verbose=0, return_dict=True)
@@ -165,6 +185,9 @@ def main():
                         help="auto selects GPU if available; gpu fails early when unavailable")
     parser.add_argument("--check-device", action="store_true", help="Probe device placement without loading data or training")
     parser.add_argument("--export-firmware", action="store_true", help="Overwrite firmware model_data.h after conversion")
+    parser.add_argument("--initial-model", type=Path, help="Fine-tune an existing Keras model instead of training from scratch")
+    parser.add_argument("--learning-rate", type=float, help="Default: 0.0001 for fine-tuning, 0.001 from scratch")
+    parser.add_argument("--freeze-batchnorm", action="store_true", help="Keep pretrained BatchNorm statistics fixed")
     args = parser.parse_args()
     if args.check_device:
         check_device(args.device)

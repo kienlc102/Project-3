@@ -1,4 +1,5 @@
 "use client";
+import { ImageTestPanel } from "./parking-dashboard/image-test-panel";
 import { Icon } from "./icons";
 import { useParkingDashboard } from "./parking-dashboard/use-parking-dashboard";
 import { SlotDialog } from "./parking-dashboard/slot-dialog";
@@ -18,6 +19,13 @@ import { SettingsPanel } from "./parking-dashboard/settings-panel";
 import { DashboardFooter } from "./parking-dashboard/dashboard-footer";
 export default function ParkingDashboard() {
   const {
+    imageFile,
+    imageUrl,
+    selectImage,
+    layout,
+    setLayout,
+    columns,
+    setColumns,
     view,
     setView,
     demo,
@@ -121,6 +129,23 @@ export default function ParkingDashboard() {
           )}
           {(view === "overview" || view === "slots") && (
             <>
+              <ImageTestPanel
+                demo={demo}
+                busy={busy}
+                camera={currentCamera}
+                status={status}
+                target={target}
+                setTarget={(value) => {
+                  setTarget(value);
+                  setFrame(null);
+                  setSelected(null);
+                }}
+                file={imageFile}
+                imageUrl={imageUrl}
+                upload={upload}
+                run={() => imageFile && void scan(imageFile)}
+                frame={currentFrame}
+              />
               <Metrics
                 demo={demo}
                 currentCamera={currentCamera}
@@ -130,6 +155,10 @@ export default function ParkingDashboard() {
               />
               <div className="overview-grid">
                 <ParkingMap
+                  layout={layout}
+                  setLayout={setLayout}
+                  columns={columns}
+                  setColumns={setColumns}
                   view={view}
                   setView={setView}
                   demo={demo}
@@ -222,10 +251,11 @@ export default function ParkingDashboard() {
         ref={fileInput}
         className="hidden-input"
         type="file"
+        disabled={busy}
         accept="image/jpeg,image/png,image/webp,image/bmp"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) void scan(file);
+          if (file) selectImage(file);
           e.target.value = "";
         }}
       />

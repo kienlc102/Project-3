@@ -5,7 +5,7 @@ import { demoCamera, demoFrame, demoStatus } from "./data";
 import { api } from "./api";
 export function useParkingDashboard() {
   const [view, setView] = useState<View>("overview");
-  const [demo, setDemo] = useState(true);
+  const [demo, setDemo] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [camera, setCamera] = useState<Camera | null>(null);
   const [frame, setFrame] = useState<Frame | null>(null);
@@ -19,6 +19,10 @@ export function useParkingDashboard() {
   const [selected, setSelected] = useState<Result | null>(null);
   const [target, setTarget] = useState("esp32");
   const [lotName, setLotName] = useState("Bãi đỗ xe Trung Tâm");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState("");
+  const [layout, setLayout] = useState<"roi" | "grid">("roi");
+  const [columns, setColumns] = useState(9);
   const [auto, setAuto] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const requestBusy = useRef(false);
@@ -58,7 +62,30 @@ export function useParkingDashboard() {
     const saved = localStorage.getItem("parkly-lot-name");
     if (saved) setLotName(saved);
   }, []);
+  useEffect(() => {
+    if (!imageFile) {
+      setImageUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImageUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+  function selectImage(file: File) {
+    if (requestBusy.current) return;
+    if (!file.size || file.size > 10 * 1024 * 1024) {
+      setError("Chọn ảnh có dung lượng từ 1 byte đến 10 MB.");
+      return;
+    }
+    setImageFile(file);
+    setFrame(null);
+    setSelected(null);
+    setUpdated(null);
+    setError("");
+    setView("overview");
+  }
   const refresh = useCallback(async () => {
+    if (requestBusy.current) return;
     const version = generation.current;
     setBusy(true);
     setError("");
@@ -70,6 +97,9 @@ export function useParkingDashboard() {
       if (version !== generation.current) return;
       setStatus(s);
       setCamera(r.camera);
+      setFrame(null);
+      setSelected(null);
+      setUpdated(null);
       setTarget((previous) =>
         s.execution_targets.includes(previous)
           ? previous
@@ -79,6 +109,7 @@ export function useParkingDashboard() {
       if (version === generation.current) {
         setError((e as Error).message);
         setStatus(null);
+        setCamera(null);
         setFrame(null);
       }
     } finally {
@@ -106,6 +137,7 @@ export function useParkingDashboard() {
       requestBusy.current = true;
       setBusy(true);
       setError("");
+      setNotice("");
       setFrame(null);
       setSelected(null);
       try {
@@ -117,7 +149,13 @@ export function useParkingDashboard() {
         );
         if (version !== generation.current) return;
         const now = new Date().toISOString();
+        if (camera && result.camera_id !== camera.camera_id)
+          throw new Error(
+            "Camera đã thay đổi. Làm mới cấu hình ROI rồi kiểm tra lại.",
+          );
         setFrame(result);
+        if (!result.complete)
+          setNotice("Một số ô chưa có kết quả. Chọn ô dấu ? để xem lỗi.");
         setUpdated(now);
         setEntries((prev) =>
           [
@@ -137,7 +175,7 @@ export function useParkingDashboard() {
         if (version === generation.current) setBusy(false);
       }
     },
-    [demo, target],
+    [demo, target, camera],
   );
   useEffect(() => {
     if (!auto || demo || !status) return;
@@ -150,6 +188,7 @@ export function useParkingDashboard() {
   function switchMode() {
     generation.current++;
     setDemo(!demo);
+    setImageFile(null);
     setFrame(null);
     setEntries([]);
     setSelected(null);
@@ -187,6 +226,13 @@ export function useParkingDashboard() {
   }
 
   return {
+    imageFile,
+    imageUrl,
+    selectImage,
+    layout,
+    setLayout,
+    columns,
+    setColumns,
     view,
     setView,
     demo,
